@@ -23,7 +23,7 @@ Our project aims to tackle the above problems by developing a model for automati
 
 1. Clone the repo
 ```sh
-git clone https://github.com/ChewKinWhye/nanoVAE.git
+git clone https://github.com/ChewKinWhye/bioimage-captioning.git
 ```
 2. Create venv
 ```sh
