@@ -36,6 +36,7 @@ source env/bin/activate
 pip install -r requirements.txt
 ```
 4. Install Kaggle dataset
+
 Go to the 'Account' tab of your Kaggle user profile (https://www.kaggle.com/<username>/account) and select 'Create API Token'.
 Open up downloaded kaggle.json file to obtain username and key.
 ```sh
