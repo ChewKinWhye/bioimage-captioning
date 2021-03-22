@@ -44,8 +44,6 @@ def load_chexpert_data():
     line_count = 0
     for patient in os.listdir(chexpert_train_path):
         line_count += 1
-        if line_count == 1000:
-            break
         patient_path = join(chexpert_train_path, patient)
         for study in os.listdir(patient_path):
             patient_study_path = join(patient_path, study)
@@ -60,12 +58,10 @@ def load_chexpert_data():
 
     # Extract data from test directory
     test_x_data = {}
-    chexpert_test_path = join(chexpert_path, "test")
+    chexpert_test_path = join(chexpert_path, "valid")
     line_count = 0
     for patient in os.listdir(chexpert_test_path):
         line_count += 1
-        if line_count == 1000:
-            break
         patient_path = join(chexpert_test_path, patient)
         for study in os.listdir(patient_path):
             patient_study_path = join(patient_path, study)
@@ -85,6 +81,8 @@ def load_chexpert_data():
         if key in train_y_data:
             train_x_numpy.append(value)
             train_y_numpy.append(train_y_data[key])
+        else:
+            print("?")
     train_x_numpy = np.array(train_x_numpy)
     train_y_numpy = np.array(train_y_numpy)
 
@@ -92,9 +90,11 @@ def load_chexpert_data():
     test_x_numpy = []
     test_y_numpy = []
     for key, value in test_x_data.items():
-        if key in train_y_data:
+        if key in test_y_data:
             test_x_numpy.append(value)
             test_y_numpy.append(test_y_data[key])
+        else:
+            print("?")
     test_x_numpy = np.array(test_x_numpy)
     test_y_numpy = np.array(test_y_numpy)
     print(f"Train X shape: {train_x_numpy.shape}")
