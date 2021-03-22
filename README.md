@@ -47,6 +47,7 @@ unzip chest-xrays-indiana-university.zip
 ```
 5. Install cheXpert datasta
 At the bottom of the CheXpert webpage, write a registration form to download the CheXpert dataset. You will receive an email with the download link. Right-click your mouse on the download link(439GB or 11GB) and click 'Copy link address'
+```sh
 wget -P data -O chexpert "link_address_you_copied"
 unzip chexpert
 ```
