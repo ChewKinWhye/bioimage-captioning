@@ -2,10 +2,12 @@ import numpy as np
 import tensorflow as tf
 from PIL import Image # Image library
 
-from keras.layers import Dense, LSTM, Activation, Dropout, Embedding, Concatenate
-from keras.models import Model,Input
-from keras.utils import plot_model
-from keras.preprocessing.text import one_hot
+from tensorflow.keras import Model,Input
+from tensorflow.keras.layers import Dense, LSTM, Activation, Dropout, Embedding, Concatenate
+from tensorflow.keras.utils import plot_model
+from tensorflow.keras.preprocessing.text import one_hot
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
 
 # from keras.layers.merge import add # add([x,y]) seems it just takes a scalar addition of
 
@@ -57,7 +59,7 @@ model = Model(inputs=[pic_in, tag_in],outputs=final_out)
 model.compile(loss='categorical_crossentropy', optimizer='adam')
 # summarize model
 print(model.summary())
-plot_model(model, to_file='./model.png', show_shapes=True)
+# plot_model(model, to_file='./model.png', show_shapes=True)
 
 
 # Testing the pipeline
