@@ -103,5 +103,7 @@ def load_chexpert_data():
     print(f"Test Y shape: {test_y_numpy.shape}")
 
     return train_x_numpy, train_y_numpy, test_x_numpy, test_y_numpy
-load_chexpert_data()
 
+
+def load_indiana_data():
+    return 1, 2, 3, 4
