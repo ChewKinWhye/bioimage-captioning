@@ -105,5 +105,47 @@ def load_chexpert_data():
     return train_x_numpy, train_y_numpy, test_x_numpy, test_y_numpy
 
 
-def load_indiana_data():
-    return 1, 2, 3, 4
+def load_indiana_data(image_dimension, augmenter):
+    # Extract labels
+    train_y_data = {}
+    base_path = join(dirname(dirname(abspath(__file__))), "data")
+    indiana_path = join(base_path, "indiana-university")
+    train_csv_path = join(indiana_path, "indiana_reports.csv")
+    with open(train_csv_path) as csv_file:
+        line_count = 0
+        csv_reader = csv.reader(csv_file, delimiter=",")
+        for row in csv_reader:
+            if line_count == 0:
+                line_count += 1
+                continue
+            else:
+                line_count += 1
+                train_y_data[row[0]] = row[6]
+
+    # Extract input data
+    train_x = []
+    train_y = []
+    indiana_path_train_path = join(indiana_path, "images", "images_normalized")
+    line_count = 0
+    for patient in os.listdir(indiana_path_train_path):
+        line_count += 1
+        image_path = join(indiana_path_train_path, patient)
+        patient_id = patient.split("_")
+        if patient_id in train_y_data:
+            image = Image.open(image_path).resize(image_dimension)
+            image_array = np.asarray(image.convert("RGB"))
+            image_array = image_array / 255.
+            image_array = augmenter.augment_images(image_array)
+            imagenet_mean = np.array([0.485, 0.456, 0.406])
+            imagenet_std = np.array([0.229, 0.224, 0.225])
+            image_array = (image_array - imagenet_mean) / imagenet_std
+            train_x.append(image_array)
+            train_y.append(train_y_data[patient_id])
+        else:
+            print("PATIENT NOT FOUND")
+
+    train_x = np.array(train_x)
+    train_y = np.array(train_y)
+    print(f"Train X shape: {train_x.shape}")
+    print(f"Train Y shape: {train_y.shape}")
+    return train_x, train_y

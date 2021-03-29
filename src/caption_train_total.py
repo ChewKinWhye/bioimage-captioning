@@ -3,13 +3,15 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from sklearn.model_selection import train_test_split
-
+from data import load_indiana_data
 import unicodedata
 import re
 import numpy as np
 import os
 import io
 import time
+from configparser import ConfigParser
+from imgaug import augmenters as iaa
 
 # Converts the unicode file to ascii
 def unicode_to_ascii(s):
@@ -183,7 +185,19 @@ def train_step(inp, targ, enc_hidden):
 
     return batch_loss
 
-x, y, report_idx_to_word, tag_idx_to_word = create_dataset("data")
+cp = ConfigParser()
+config_file = "./config.ini"
+cp.read(config_file)
+image_dimension = cp["TRAIN"].getint("image_dimension")
+
+augmenter = iaa.Sequential(
+    [
+        iaa.Fliplr(0.5),
+    ],
+    random_order=True,
+)
+x, y = load_indiana_data((image_dimension, image_dimension), augmenter)
+x, y, report_idx_to_word, tag_idx_to_word = create_dataset(image_dimension)
 
 train_x, val_x, train_y, val_y = train_test_split(x, y, test_size=0.2)
 max_length_y = y.shape[1]
