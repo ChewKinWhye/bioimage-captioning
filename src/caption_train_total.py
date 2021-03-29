@@ -13,6 +13,8 @@ import time
 from configparser import ConfigParser
 from imgaug import augmenters as iaa
 from vision_model import get_model
+from os.path import dirname, abspath, join
+
 
 class_names = ['No_Finding',
              'Enlarged_Cardiomediastinum',
@@ -215,7 +217,8 @@ output_dir = cp["DEFAULT"].get("output_dir")
 output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 
-model = get_model(class_names, "outs/output4/best_weights.h5")
+vision_model_path = join(dirname(abspath(__file__)), "outs", "output4", "best_weights.h5")
+model = get_model(class_names, vision_model_path)
 
 augmenter = iaa.Sequential(
     [
