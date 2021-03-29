@@ -12,7 +12,22 @@ import io
 import time
 from configparser import ConfigParser
 from imgaug import augmenters as iaa
-from train import ModelFactory
+from vision_model import get_model
+
+class_names = ['No_Finding',
+             'Enlarged_Cardiomediastinum',
+             'Cardiomegaly',
+             'Lung_Opacity',
+             'Lung_Lesion',
+             'Edema',
+             'Consolidation',
+             'Pneumonia',
+             'Atelectasis',
+             'Pneumothorax',
+             'Pleural_Effusion',
+             'Pleural_Other',
+             'Fracture',
+             'Support_Devices']
 
 
 # Converts the unicode file to ascii
@@ -200,14 +215,7 @@ output_dir = cp["DEFAULT"].get("output_dir")
 output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 
-model_weights_file = os.path.join(output_dir, "best_" + output_weights_name)
-model_factory = ModelFactory()
-model = model_factory.get_model(
-            class_names,
-            model_name=base_model_name,
-            use_base_weights=use_base_model_weights,
-            weights_path=model_weights_file,
-            input_shape=(image_dimension, image_dimension, 3))
+model = get_model(class_names, "outs/output4/best_weights.h5")
 
 augmenter = iaa.Sequential(
     [
