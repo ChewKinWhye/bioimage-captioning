@@ -177,9 +177,6 @@ def train_step(inp, targ, enc_hidden):
 
     with tf.GradientTape() as tape:
         # Pass input through model and tokenize
-
-
-
         enc_output, enc_hidden = encoder(inp, enc_hidden)
 
         dec_hidden = enc_hidden
@@ -206,6 +203,68 @@ def train_step(inp, targ, enc_hidden):
 
     return batch_loss
 
+
+def evaluate(image):
+    attention_plot = np.zeros((max_length_y, max_length_x))
+    x = model(image)
+    x_temp = []
+    for row in x:
+        idx = np.where(row == 1).tolist()
+        idx.insert(0, 0)
+        idx.append(len(tag_idx_to_word) - 1)
+        idx += [len(tag_idx_to_word)] * (len(tag_idx_to_word) - len(idx) + 2)
+        x_temp.append(idx)
+
+    input_sentence = ""
+    for idx in x_temp[0]:
+        if idx >= len(tag_idx_to_word):
+            input_sentence += "<buffer>"
+        else:
+            input_sentence += tag_idx_to_word[idx] + " "
+    inputs = np.array(x_temp)
+    result = ''
+
+    hidden = [tf.zeros((1, units))]
+    enc_out, enc_hidden = encoder(inputs, hidden)
+
+    dec_hidden = enc_hidden
+    dec_input = tf.expand_dims([report_idx_to_word.word_index['<start>']], 0)
+
+    for t in range(max_length_y):
+        predictions, dec_hidden, attention_weights = decoder(dec_input,
+                                                             dec_hidden,
+                                                             enc_out)
+
+        # storing the attention weights to plot later on
+        attention_weights = tf.reshape(attention_weights, (-1, ))
+        attention_plot[t] = attention_weights.numpy()
+
+        predicted_id = tf.argmax(predictions[0]).numpy()
+
+        result += report_idx_to_word.index_word[predicted_id] + ' '
+
+        if report_idx_to_word.index_word[predicted_id] == '<end>':
+            return result, input_sentence, attention_plot
+
+        # the predicted ID is fed back into the model
+        dec_input = tf.expand_dims([predicted_id], 0)
+
+    return result, input_sentence, attention_plot
+
+def plot_attention(attention, sentence, predicted_sentence):
+    fig = plt.figure(figsize=(10,10))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.matshow(attention, cmap='viridis')
+
+    fontdict = {'fontsize': 14}
+
+    ax.set_xticklabels([''] + sentence, fontdict=fontdict, rotation=90)
+    ax.set_yticklabels([''] + predicted_sentence, fontdict=fontdict)
+
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+
+    plt.show()
 cp = ConfigParser()
 config_file = "./config.ini"
 cp.read(config_file)
@@ -239,6 +298,7 @@ for row in x:
 x = np.array(x_temp)
 
 train_x, val_x, train_y, val_y = train_test_split(x, y, test_size=0.2)
+max_length_x = x.shape[1]
 max_length_y = y.shape[1]
 
 
@@ -286,3 +346,10 @@ for epoch in range(EPOCHS):
     print('Epoch {} Loss {:.4f}'.format(epoch + 1,
                                       total_loss / steps_per_epoch))
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+
+result, input_sentence, attention_plot = evaluate(val_x[0])
+print(f"Input: {input_sentence}")
+print(f"Output: {result}")
+print(f"Expected Outputs: {val_y[0]}")
+attention_plot = attention_plot[:len(result.split(' ')), :len(input_sentence.split(' '))]
+plot_attention(attention_plot, input_sentence.split(' '), result.split(' '))
