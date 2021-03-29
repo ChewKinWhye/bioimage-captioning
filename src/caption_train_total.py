@@ -217,7 +217,7 @@ output_dir = cp["DEFAULT"].get("output_dir")
 output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 
-vision_model_path = join(dirname(abspath(__file__)), "outs", "output4", "best_weights.h5")
+vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
 
 augmenter = iaa.Sequential(
@@ -226,12 +226,12 @@ augmenter = iaa.Sequential(
     ],
     random_order=True,
 )
-x, y = load_indiana_data((image_dimension, image_dimension), augmenter)
+x, y = load_indiana_data((224, 224), augmenter)
 y, report_idx_to_word, tag_idx_to_word = preprocess_report(y, class_names)
 x = model(x)
 x_temp = []
 for row in x:
-    idx = np.where(row==1).tolist()
+    idx = np.where(row==1)[0].tolist()
     idx.insert(0, 0)
     idx.append(len(tag_idx_to_word)-1)
     idx += [len(tag_idx_to_word)] * (len(tag_idx_to_word) - len(idx) + 2)
@@ -272,7 +272,7 @@ for epoch in range(EPOCHS):
     total_loss = 0
 
     for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
-        batch_loss = train_step(inp, targ, enc_hidden, model)
+        batch_loss = train_step(inp, targ, enc_hidden)
         total_loss += batch_loss
 
         if batch % 100 == 0:
