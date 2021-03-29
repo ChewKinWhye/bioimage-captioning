@@ -12,6 +12,8 @@ import io
 import time
 from configparser import ConfigParser
 from imgaug import augmenters as iaa
+from train import ModelFactory
+
 
 # Converts the unicode file to ascii
 def unicode_to_ascii(s):
@@ -52,8 +54,7 @@ def preprocess_report(y, class_names):
     y, report_idx_to_word = tokenize(y)
     class_names.insert(0, "<start>")
     class_names.append("<end>")
-    tag_idx_to_word = None
-    return x, y, report_idx_to_word, class_names
+    return y, report_idx_to_word, class_names
 
 
 class Encoder(tf.keras.Model):
@@ -159,6 +160,9 @@ def train_step(inp, targ, enc_hidden):
 
     with tf.GradientTape() as tape:
         # Pass input through model and tokenize
+
+
+
         enc_output, enc_hidden = encoder(inp, enc_hidden)
 
         dec_hidden = enc_hidden
@@ -190,6 +194,20 @@ config_file = "./config.ini"
 cp.read(config_file)
 image_dimension = cp["TRAIN"].getint("image_dimension")
 class_names = cp["DEFAULT"].get("class_names").split(",")
+base_model_name = cp["DEFAULT"].get("base_model_name")
+use_base_model_weights = cp["TRAIN"].getboolean("use_base_model_weights")
+output_dir = cp["DEFAULT"].get("output_dir")
+output_weights_name = cp["TRAIN"].get("output_weights_name")
+
+
+model_weights_file = os.path.join(output_dir, "best_" + output_weights_name)
+model_factory = ModelFactory()
+model = model_factory.get_model(
+            class_names,
+            model_name=base_model_name,
+            use_base_weights=use_base_model_weights,
+            weights_path=model_weights_file,
+            input_shape=(image_dimension, image_dimension, 3))
 
 augmenter = iaa.Sequential(
     [
@@ -198,7 +216,16 @@ augmenter = iaa.Sequential(
     random_order=True,
 )
 x, y = load_indiana_data((image_dimension, image_dimension), augmenter)
-x, y, report_idx_to_word, tag_idx_to_word = preprocess_report(y, class_names)
+y, report_idx_to_word, tag_idx_to_word = preprocess_report(y, class_names)
+x = model(x)
+x_temp = []
+for row in x:
+    idx = np.where(row==1).tolist()
+    idx.insert(0, 0)
+    idx.append(len(tag_idx_to_word)-1)
+    idx += [len(tag_idx_to_word)] * (len(tag_idx_to_word) - len(idx) + 2)
+    x_temp.append(idx)
+x = np.array(x_temp)
 
 train_x, val_x, train_y, val_y = train_test_split(x, y, test_size=0.2)
 max_length_y = y.shape[1]
@@ -234,7 +261,7 @@ for epoch in range(EPOCHS):
     total_loss = 0
 
     for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
-        batch_loss = train_step(inp, targ, enc_hidden)
+        batch_loss = train_step(inp, targ, enc_hidden, model)
         total_loss += batch_loss
 
         if batch % 100 == 0:
