@@ -14,7 +14,8 @@ from configparser import ConfigParser
 from imgaug import augmenters as iaa
 from vision_model import get_model
 from os.path import dirname, abspath, join
-
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 class_names = ['No_Finding',
              'Enlarged_Cardiomediastinum',
@@ -204,28 +205,19 @@ def train_step(inp, targ, enc_hidden):
     return batch_loss
 
 
-def evaluate(image):
+def evaluate(val_x):
     attention_plot = np.zeros((max_length_y, max_length_x))
-    x = model(image)
-    x_temp = []
-    for row in x:
-        idx = np.where(row == 1).tolist()
-        idx.insert(0, 0)
-        idx.append(len(tag_idx_to_word) - 1)
-        idx += [len(tag_idx_to_word)] * (len(tag_idx_to_word) - len(idx) + 2)
-        x_temp.append(idx)
-
     input_sentence = ""
-    for idx in x_temp[0]:
+    for idx in val_x:
         if idx >= len(tag_idx_to_word):
             input_sentence += "<buffer>"
         else:
             input_sentence += tag_idx_to_word[idx] + " "
-    inputs = np.array(x_temp)
+    
     result = ''
-
+    val_x = np.expand_dims(val_x, axis=0)
     hidden = [tf.zeros((1, units))]
-    enc_out, enc_hidden = encoder(inputs, hidden)
+    enc_out, enc_hidden = encoder(val_x, hidden)
 
     dec_hidden = enc_hidden
     dec_input = tf.expand_dims([report_idx_to_word.word_index['<start>']], 0)
@@ -347,9 +339,19 @@ for epoch in range(EPOCHS):
                                       total_loss / steps_per_epoch))
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
 
-result, input_sentence, attention_plot = evaluate(val_x[0])
-print(f"Input: {input_sentence}")
-print(f"Output: {result}")
-print(f"Expected Outputs: {val_y[0]}")
+for i in range(20):
+    result, input_sentence, attention_plot = evaluate(val_x[i])
+    print(f"Input: {input_sentence}")
+    print(f"Output: {result}")
+    expected_output = ""
+    for idx in val_y[i]:
+        if idx == 0:
+            continue
+        if idx >= len(report_idx_to_word.index_word):
+            expected_output += "<buffer>"
+        else:
+            expected_output += report_idx_to_word.index_word[idx] + " "
+    print(f"Expected Outputs: {expected_output}")
+
 attention_plot = attention_plot[:len(result.split(' ')), :len(input_sentence.split(' '))]
 plot_attention(attention_plot, input_sentence.split(' '), result.split(' '))
