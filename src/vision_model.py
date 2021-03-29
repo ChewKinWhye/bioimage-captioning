@@ -35,5 +35,5 @@ def get_model(class_names,
     model.load_weights(weights_path)
     return model
 
-model = get_model(class_names, "outs/output4/best_weights.h5")
-model.summary()
+#model = get_model(class_names, "outs/output4/best_weights.h5")
+#model.summary()
