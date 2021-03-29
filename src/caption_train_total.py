@@ -47,13 +47,13 @@ def tokenize(lang):
     return tensor, lang_tokenizer
 
 
-def create_dataset(path):
-    x = np.array([])
-    y = np.array([])
-    tokenizer = None
-    # preprocess_sentence
-    # tokenize
-    return x, y, report_idx_to_word, tag_idx_to_word
+def preprocess_report(y, class_names):
+    y = [preprocess_sentence(i) for i in y]
+    y, report_idx_to_word = tokenize(y)
+    class_names.insert(0, "<start>")
+    class_names.append("<end>")
+    tag_idx_to_word = None
+    return x, y, report_idx_to_word, class_names
 
 
 class Encoder(tf.keras.Model):
@@ -189,6 +189,7 @@ cp = ConfigParser()
 config_file = "./config.ini"
 cp.read(config_file)
 image_dimension = cp["TRAIN"].getint("image_dimension")
+class_names = cp["DEFAULT"].get("class_names").split(",")
 
 augmenter = iaa.Sequential(
     [
@@ -197,11 +198,10 @@ augmenter = iaa.Sequential(
     random_order=True,
 )
 x, y = load_indiana_data((image_dimension, image_dimension), augmenter)
-x, y, report_idx_to_word, tag_idx_to_word = create_dataset(image_dimension)
+x, y, report_idx_to_word, tag_idx_to_word = preprocess_report(y, class_names)
 
 train_x, val_x, train_y, val_y = train_test_split(x, y, test_size=0.2)
 max_length_y = y.shape[1]
-print(len(train_x), len(val_x), len(train_y), len(val_y))
 
 
 BUFFER_SIZE = len(train_x)
@@ -209,7 +209,7 @@ BATCH_SIZE = 64
 steps_per_epoch = len(train_x)//BATCH_SIZE
 embedding_dim = 256
 units = 1024
-vocab_tag_size = len(tag_idx_to_word.word_index)+1
+vocab_tag_size = len(tag_idx_to_word)+1
 vocab_report_size = len(report_idx_to_word.word_index)+1
 
 dataset = tf.data.Dataset.from_tensor_slices((train_x, train_y)).shuffle(BUFFER_SIZE)

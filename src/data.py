@@ -129,22 +129,24 @@ def load_indiana_data(image_dimension, augmenter):
     line_count = 0
     for patient in os.listdir(indiana_path_train_path):
         line_count += 1
+        if line_count == 100:
+            break
         image_path = join(indiana_path_train_path, patient)
-        patient_id = patient.split("_")
+        patient_id = patient.split("_")[0]
         if patient_id in train_y_data:
             image = Image.open(image_path).resize(image_dimension)
             image_array = np.asarray(image.convert("RGB"))
             image_array = image_array / 255.
-            image_array = augmenter.augment_images(image_array)
-            imagenet_mean = np.array([0.485, 0.456, 0.406])
-            imagenet_std = np.array([0.229, 0.224, 0.225])
-            image_array = (image_array - imagenet_mean) / imagenet_std
             train_x.append(image_array)
             train_y.append(train_y_data[patient_id])
         else:
             print("PATIENT NOT FOUND")
 
     train_x = np.array(train_x)
+    train_x = augmenter.augment_images(train_x)
+    imagenet_mean = np.array([0.485, 0.456, 0.406])
+    imagenet_std = np.array([0.229, 0.224, 0.225])
+    train_x = (train_x - imagenet_mean) / imagenet_std
     train_y = np.array(train_y)
     print(f"Train X shape: {train_x.shape}")
     print(f"Train Y shape: {train_y.shape}")
