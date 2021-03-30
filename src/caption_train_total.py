@@ -147,7 +147,6 @@ class Decoder(tf.keras.Model):
 
         # x shape after passing through embedding == (batch_size, 1, embedding_dim)
         x = self.embedding(x)
-
         # x shape after concatenation == (batch_size, 1, embedding_dim + hidden_size)
         x = tf.concat([tf.expand_dims(context_vector, 1), x, features], axis=-1)
 
@@ -206,7 +205,7 @@ def train_step(inp, features, targ, enc_hidden):
     return batch_loss
 
 
-def evaluate(val_x):
+def evaluate(val_x, val_x_features):
     attention_plot = np.zeros((max_length_y, max_length_x))
     input_sentence = ""
     for idx in val_x:
@@ -215,6 +214,7 @@ def evaluate(val_x):
         input_sentence += tag_idx_to_word.index_word[idx] + ' '
     
     result = ''
+    val_x_features = np.expand_dims(val_x_features, axis=0)
     val_x = np.expand_dims(val_x, axis=0)
     hidden = [tf.zeros((1, units))]
     enc_out, enc_hidden = encoder(val_x, hidden)
@@ -225,7 +225,8 @@ def evaluate(val_x):
     for t in range(max_length_y):
         predictions, dec_hidden, attention_weights = decoder(dec_input,
                                                              dec_hidden,
-                                                             enc_out)
+                                                             enc_out,
+                                                             val_x_features)
 
         # storing the attention weights to plot later on
         attention_weights = tf.reshape(attention_weights, (-1, ))
@@ -280,7 +281,7 @@ augmenter = iaa.Sequential(
 x, y = load_indiana_data((224, 224), augmenter)
 num_layers = len(model.layers)
 vision_feature_model = K.function([model.layers[0].input], [model.layers[num_layers-2].output])
-x_image_features = vision_feature_model(x)
+x_image_features = np.squeeze(vision_feature_model(x))
 print(np.array(x_image_features).shape)
 x = model(x)
 x_temp = []
@@ -344,7 +345,7 @@ for epoch in range(EPOCHS):
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
 
 for i in range(20):
-    result, input_sentence, attention_plot = evaluate(val_x[i])
+    result, input_sentence, attention_plot = evaluate(val_x[i], val_x_features[i])
     print(f"Input: {input_sentence}")
     print(f"Output: {result}")
     expected_output = ""
