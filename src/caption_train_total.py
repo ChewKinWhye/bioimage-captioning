@@ -210,10 +210,7 @@ def evaluate(val_x):
     attention_plot = np.zeros((max_length_y, max_length_x))
     input_sentence = ""
     for idx in val_x:
-        if idx >= len(tag_idx_to_word):
-            input_sentence += "<buffer>"
-        else:
-            input_sentence += tag_idx_to_word[idx] + " "
+        input_sentence += tag_idx_to_word.index_word[idx] + ' '
     
     result = ''
     val_x = np.expand_dims(val_x, axis=0)
@@ -282,11 +279,10 @@ x, y = load_indiana_data((224, 224), augmenter)
 x = model(x)
 x_temp = []
 for row in x:
-    tag_sentence = "<start> "
+    tag_sentence = ""
     for tag_idx, score in enumerate(row):
         if score > 0.5:
             tag_sentence += class_names[tag_idx] + " "
-    tag_sentence += "<end>"
     x_temp.append(tag_sentence)
 x = np.array(x_temp)
 x, y, tag_idx_to_word, report_idx_to_word = preprocess_report(x, y)
