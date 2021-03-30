@@ -141,7 +141,7 @@ class Decoder(tf.keras.Model):
         # used for attention
         self.attention = BahdanauAttention(self.dec_units)
 
-    def call(self, x, hidden, enc_output):
+    def call(self, x, hidden, enc_output, features):
         # enc_output shape == (batch_size, max_length, hidden_size)
         context_vector, attention_weights = self.attention(hidden, enc_output)
 
@@ -149,7 +149,7 @@ class Decoder(tf.keras.Model):
         x = self.embedding(x)
 
         # x shape after concatenation == (batch_size, 1, embedding_dim + hidden_size)
-        x = tf.concat([tf.expand_dims(context_vector, 1), x], axis=-1)
+        x = tf.concat([tf.expand_dims(context_vector, 1), x, features], axis=-1)
 
         # passing the concatenated vector to the GRU
         output, state = self.gru(x)
@@ -174,7 +174,7 @@ def loss_function(real, pred):
 
 
 @tf.function
-def train_step(inp, targ, enc_hidden):
+def train_step(inp, features, targ, enc_hidden):
     loss = 0
 
     with tf.GradientTape() as tape:
@@ -188,7 +188,7 @@ def train_step(inp, targ, enc_hidden):
         # Teacher forcing - feeding the target as the next input
         for t in range(1, targ.shape[1]):
             # passing enc_output to the decoder
-            predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output)
+            predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output, features)
 
             loss += loss_function(targ[:, t], predictions)
 
@@ -268,7 +268,10 @@ output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
+model_image_features = get_model(class_names, vision_model_path)
+model_image_features.pop()
 
+print()
 augmenter = iaa.Sequential(
     [
         iaa.Fliplr(0.5),
@@ -276,6 +279,7 @@ augmenter = iaa.Sequential(
     random_order=True,
 )
 x, y = load_indiana_data((224, 224), augmenter)
+x_image_features = model_image_features(x)
 x = model(x)
 x_temp = []
 for row in x:
@@ -287,7 +291,7 @@ for row in x:
 x = np.array(x_temp)
 x, y, tag_idx_to_word, report_idx_to_word = preprocess_report(x, y)
 
-train_x, val_x, train_y, val_y = train_test_split(x, y, test_size=0.2)
+train_x, val_x, train_x_features, val_x_features, train_y, val_y = train_test_split(x, x_image_features, y, test_size=0.2)
 max_length_x = x.shape[1]
 max_length_y = y.shape[1]
 
@@ -300,7 +304,7 @@ units = 1024
 vocab_tag_size = len(tag_idx_to_word)+1
 vocab_report_size = len(report_idx_to_word.word_index)+1
 
-dataset = tf.data.Dataset.from_tensor_slices((train_x, train_y)).shuffle(BUFFER_SIZE)
+dataset = tf.data.Dataset.from_tensor_slices((train_x, train_x_features, train_y)).shuffle(BUFFER_SIZE)
 dataset = dataset.batch(BATCH_SIZE, drop_remainder=True)
 
 encoder = Encoder(vocab_tag_size, embedding_dim, units, BATCH_SIZE)
@@ -321,8 +325,8 @@ for epoch in range(EPOCHS):
     enc_hidden = encoder.initialize_hidden_state()
     total_loss = 0
 
-    for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
-        batch_loss = train_step(inp, targ, enc_hidden)
+    for (batch, (inp, features, targ)) in enumerate(dataset.take(steps_per_epoch)):
+        batch_loss = train_step(inp, features, targ, enc_hidden)
         total_loss += batch_loss
 
         if batch % 100 == 0:
@@ -345,8 +349,6 @@ for i in range(20):
     for idx in val_y[i]:
         if idx == 0:
             continue
-        if idx >= len(report_idx_to_word.index_word):
-            expected_output += "<buffer>"
         else:
             expected_output += report_idx_to_word.index_word[idx] + " "
     print(f"Expected Outputs: {expected_output}")
