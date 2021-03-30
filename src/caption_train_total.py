@@ -210,6 +210,8 @@ def evaluate(val_x):
     attention_plot = np.zeros((max_length_y, max_length_x))
     input_sentence = ""
     for idx in val_x:
+        if idx == 0:
+            continue
         input_sentence += tag_idx_to_word.index_word[idx] + ' '
     
     result = ''
@@ -297,7 +299,7 @@ BATCH_SIZE = 64
 steps_per_epoch = len(train_x)//BATCH_SIZE
 embedding_dim = 256
 units = 1024
-vocab_tag_size = len(tag_idx_to_word)+1
+vocab_tag_size = len(tag_idx_to_word.word_index)+1
 vocab_report_size = len(report_idx_to_word.word_index)+1
 
 dataset = tf.data.Dataset.from_tensor_slices((train_x, train_y)).shuffle(BUFFER_SIZE)
@@ -351,5 +353,5 @@ for i in range(20):
             expected_output += report_idx_to_word.index_word[idx] + " "
     print(f"Expected Outputs: {expected_output}")
 
-attention_plot = attention_plot[:len(result.split(' ')), :len(input_sentence.split(' '))]
-plot_attention(attention_plot, input_sentence.split(' '), result.split(' '))
+#attention_plot = attention_plot[:len(result.split(' ')), :len(input_sentence.split(' '))]
+#plot_attention(attention_plot, input_sentence.split(' '), result.split(' '))
