@@ -67,12 +67,13 @@ def tokenize(lang):
     return tensor, lang_tokenizer
 
 
-def preprocess_report(y, class_names):
+def preprocess_report(x, y):
+    x = [preprocess_sentence(i) for i in x]
+    x, tag_idx_to_word = tokenize(x)
     y = [preprocess_sentence(i) for i in y]
     y, report_idx_to_word = tokenize(y)
-    class_names.insert(0, "<start>")
-    class_names.append("<end>")
-    return y, report_idx_to_word, class_names
+
+    return x, y, tag_idx_to_word, report_idx_to_word
 
 
 class Encoder(tf.keras.Model):
@@ -278,16 +279,18 @@ augmenter = iaa.Sequential(
     random_order=True,
 )
 x, y = load_indiana_data((224, 224), augmenter)
-y, report_idx_to_word, tag_idx_to_word = preprocess_report(y, class_names)
 x = model(x)
 x_temp = []
 for row in x:
-    idx = (np.where(row>0.5)[0]+2).tolist()
-    idx.insert(0, 1)
-    idx.append(len(tag_idx_to_word))
-    idx += [len(tag_idx_to_word)+1] * (len(tag_idx_to_word) - len(idx) + 2)
-    x_temp.append(idx)
+    tag_sentence = "<start> "
+    for tag_idx, score in enumerate(row):
+        if score > 0.5:
+            tag_sentence += class_names[tag_idx] + " "
+    tag_sentence += "<end>"
+    x_temp.append(tag_sentence)
 x = np.array(x_temp)
+x, y, tag_idx_to_word, report_idx_to_word = preprocess_report(x, y)
+
 train_x, val_x, train_y, val_y = train_test_split(x, y, test_size=0.2)
 max_length_x = x.shape[1]
 max_length_y = y.shape[1]
@@ -298,7 +301,7 @@ BATCH_SIZE = 64
 steps_per_epoch = len(train_x)//BATCH_SIZE
 embedding_dim = 256
 units = 1024
-vocab_tag_size = len(tag_idx_to_word)+2
+vocab_tag_size = len(tag_idx_to_word)+1
 vocab_report_size = len(report_idx_to_word.word_index)+1
 
 dataset = tf.data.Dataset.from_tensor_slices((train_x, train_y)).shuffle(BUFFER_SIZE)
