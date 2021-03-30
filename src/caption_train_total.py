@@ -1,5 +1,5 @@
 import tensorflow as tf
-
+from tensorflow.keras import backend as K
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from sklearn.model_selection import train_test_split
@@ -270,10 +270,7 @@ output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
-model_image_features = get_model(class_names, vision_model_path)
-model_image_features.pop()
 
-print()
 augmenter = iaa.Sequential(
     [
         iaa.Fliplr(0.5),
@@ -281,7 +278,10 @@ augmenter = iaa.Sequential(
     random_order=True,
 )
 x, y = load_indiana_data((224, 224), augmenter)
-x_image_features = model_image_features(x)
+num_layers = len(model.layers)
+vision_feature_model = K.function([model.layers[0].input], [model.layers[num_layers-2].output])
+x_image_features = vision_feature_model(x)
+print(np.array(x_image_features).shape)
 x = model(x)
 x_temp = []
 for row in x:
