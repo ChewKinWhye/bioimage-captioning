@@ -2,164 +2,15 @@ import tensorflow as tf
 from tensorflow.keras import backend as K
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-from sklearn.model_selection import train_test_split
-from data import load_indiana_data
-import unicodedata
-import re
+
 import numpy as np
-import os
-import io
+from generator_indiana import DataGenerator
 import time
 from configparser import ConfigParser
-from imgaug import augmenters as iaa
 from vision_model import get_model
+from caption_models import Encoder, Decoder
 from os.path import dirname, abspath, join
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
-class_names = ['No_Finding',
-             'Enlarged_Cardiomediastinum',
-             'Cardiomegaly',
-             'Lung_Opacity',
-             'Lung_Lesion',
-             'Edema',
-             'Consolidation',
-             'Pneumonia',
-             'Atelectasis',
-             'Pneumothorax',
-             'Pleural_Effusion',
-             'Pleural_Other',
-             'Fracture',
-             'Support_Devices']
-
-
-# Converts the unicode file to ascii
-def unicode_to_ascii(s):
-    return ''.join(c for c in unicodedata.normalize('NFD', s)
-        if unicodedata.category(c) != 'Mn')
-
-
-def preprocess_sentence(w):
-    w = unicode_to_ascii(w.lower().strip())
-
-    # creating a space between a word and the punctuation following it
-    # eg: "he is a boy." => "he is a boy ."
-    # Reference:- https://stackoverflow.com/questions/3645931/python-padding-punctuation-with-white-spaces-keeping-punctuation
-    w = re.sub(r"([?.!,¿])", r" \1 ", w)
-    w = re.sub(r'[" "]+', " ", w)
-
-    # replacing everything with space except (a-z, A-Z, ".", "?", "!", ",")
-    w = re.sub(r"[^a-zA-Z?.!,¿]+", " ", w)
-
-    w = w.strip()
-
-    # adding a start and an end token to the sentence
-    # so that the model know when to start and stop predicting.
-    w = '<start> ' + w + ' <end>'
-    return w
-
-
-def tokenize(lang):
-    lang_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
-    lang_tokenizer.fit_on_texts(lang)
-    tensor = lang_tokenizer.texts_to_sequences(lang)
-    tensor = tf.keras.preprocessing.sequence.pad_sequences(tensor, padding='post')
-    return tensor, lang_tokenizer
-
-
-def preprocess_report(x, y):
-    x = [preprocess_sentence(i) for i in x]
-    x, tag_idx_to_word = tokenize(x)
-    y = [preprocess_sentence(i) for i in y]
-    y, report_idx_to_word = tokenize(y)
-
-    return x, y, tag_idx_to_word, report_idx_to_word
-
-
-class Encoder(tf.keras.Model):
-    def __init__(self, vocab_size, embedding_dim, enc_units, batch_sz):
-        super(Encoder, self).__init__()
-        self.batch_sz = batch_sz
-        self.enc_units = enc_units
-        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
-        self.gru = tf.keras.layers.GRU(self.enc_units,
-                                       return_sequences=True,
-                                       return_state=True,
-                                       recurrent_initializer='glorot_uniform')
-
-    def call(self, x, hidden):
-        x = self.embedding(x)
-        output, state = self.gru(x, initial_state = hidden)
-        return output, state
-
-    def initialize_hidden_state(self):
-        return tf.zeros((self.batch_sz, self.enc_units))
-
-
-class BahdanauAttention(tf.keras.layers.Layer):
-    def __init__(self, units):
-        super(BahdanauAttention, self).__init__()
-        self.W1 = tf.keras.layers.Dense(units)
-        self.W2 = tf.keras.layers.Dense(units)
-        self.V = tf.keras.layers.Dense(1)
-
-    def call(self, query, values):
-        # query hidden state shape == (batch_size, hidden size)
-        # query_with_time_axis shape == (batch_size, 1, hidden size)
-        # values shape == (batch_size, max_len, hidden size)
-        # we are doing this to broadcast addition along the time axis to calculate the score
-        query_with_time_axis = tf.expand_dims(query, 1)
-
-        # score shape == (batch_size, max_length, 1)
-        # we get 1 at the last axis because we are applying score to self.V
-        # the shape of the tensor before applying self.V is (batch_size, max_length, units)
-        score = self.V(tf.nn.tanh(
-            self.W1(query_with_time_axis) + self.W2(values)))
-
-        # attention_weights shape == (batch_size, max_length, 1)
-        attention_weights = tf.nn.softmax(score, axis=1)
-
-        # context_vector shape after sum == (batch_size, hidden_size)
-        context_vector = attention_weights * values
-        context_vector = tf.reduce_sum(context_vector, axis=1)
-
-        return context_vector, attention_weights
-
-
-class Decoder(tf.keras.Model):
-    def __init__(self, vocab_size, embedding_dim, dec_units, batch_sz):
-        super(Decoder, self).__init__()
-        self.batch_sz = batch_sz
-        self.dec_units = dec_units
-        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
-        self.gru = tf.keras.layers.GRU(self.dec_units,
-                                       return_sequences=True,
-                                       return_state=True,
-                                       recurrent_initializer='glorot_uniform')
-        self.fc = tf.keras.layers.Dense(vocab_size)
-
-        # used for attention
-        self.attention = BahdanauAttention(self.dec_units)
-
-    def call(self, x, hidden, enc_output, features):
-        # enc_output shape == (batch_size, max_length, hidden_size)
-        context_vector, attention_weights = self.attention(hidden, enc_output)
-
-        # x shape after passing through embedding == (batch_size, 1, embedding_dim)
-        x = self.embedding(x)
-        # x shape after concatenation == (batch_size, 1, embedding_dim + hidden_size)
-        x = tf.concat([tf.expand_dims(context_vector, 1), x, tf.expand_dims(features, 1)], axis=-1)
-
-        # passing the concatenated vector to the GRU
-        output, state = self.gru(x)
-
-        # output shape == (batch_size * 1, hidden_size)
-        output = tf.reshape(output, (-1, output.shape[2]))
-
-        # output shape == (batch_size, vocab)
-        x = self.fc(output)
-
-        return x, state, attention_weights
 
 
 def loss_function(real, pred):
@@ -182,7 +33,7 @@ def train_step(inp, features, targ, enc_hidden):
 
         dec_hidden = enc_hidden
 
-        dec_input = tf.expand_dims([report_idx_to_word.word_index['<start>']] * BATCH_SIZE, 1)
+        dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']] * BATCH_SIZE, 1)
 
         # Teacher forcing - feeding the target as the next input
         for t in range(1, targ.shape[1]):
@@ -206,12 +57,12 @@ def train_step(inp, features, targ, enc_hidden):
 
 
 def evaluate(val_x, val_x_features):
-    attention_plot = np.zeros((max_length_y, max_length_x))
+    attention_plot = np.zeros((vocab_report_size, vocab_tag_size))
     input_sentence = ""
     for idx in val_x:
         if idx == 0:
             continue
-        input_sentence += tag_idx_to_word.index_word[idx] + ' '
+        input_sentence += generator.tag_tokenizer.index_word[idx] + ' '
     
     result = ''
     val_x_features = np.expand_dims(val_x_features, axis=0)
@@ -220,9 +71,9 @@ def evaluate(val_x, val_x_features):
     enc_out, enc_hidden = encoder(val_x, hidden)
 
     dec_hidden = enc_hidden
-    dec_input = tf.expand_dims([report_idx_to_word.word_index['<start>']], 0)
+    dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']], 0)
 
-    for t in range(max_length_y):
+    for t in range(vocab_report_size):
         predictions, dec_hidden, attention_weights = decoder(dec_input,
                                                              dec_hidden,
                                                              enc_out,
@@ -234,9 +85,9 @@ def evaluate(val_x, val_x_features):
 
         predicted_id = tf.argmax(predictions[0]).numpy()
 
-        result += report_idx_to_word.index_word[predicted_id] + ' '
+        result += generator.report_tokenizer.index_word[predicted_id] + ' '
 
-        if report_idx_to_word.index_word[predicted_id] == '<end>':
+        if generator.report_tokenizer.index_word[predicted_id] == '<end>':
             return result, input_sentence, attention_plot
 
         # the predicted ID is fed back into the model
@@ -258,6 +109,7 @@ def plot_attention(attention, sentence, predicted_sentence):
     ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
 
     plt.show()
+
 cp = ConfigParser()
 config_file = "./config.ini"
 cp.read(config_file)
@@ -271,44 +123,13 @@ output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
+generator = DataGenerator(image_dimension, model, class_names)
 
-augmenter = iaa.Sequential(
-    [
-        iaa.Fliplr(0.5),
-    ],
-    random_order=True,
-)
-x, y = load_indiana_data((224, 224), augmenter)
-num_layers = len(model.layers)
-vision_feature_model = K.function([model.layers[0].input], [model.layers[num_layers-2].output])
-x_image_features = np.squeeze(vision_feature_model(x))
-print(np.array(x_image_features).shape)
-x = model(x)
-x_temp = []
-for row in x:
-    tag_sentence = ""
-    for tag_idx, score in enumerate(row):
-        if score > 0.5:
-            tag_sentence += class_names[tag_idx] + " "
-    x_temp.append(tag_sentence)
-x = np.array(x_temp)
-x, y, tag_idx_to_word, report_idx_to_word = preprocess_report(x, y)
-
-train_x, val_x, train_x_features, val_x_features, train_y, val_y = train_test_split(x, x_image_features, y, test_size=0.2)
-max_length_x = x.shape[1]
-max_length_y = y.shape[1]
-
-
-BUFFER_SIZE = len(train_x)
 BATCH_SIZE = 64
-steps_per_epoch = len(train_x)//BATCH_SIZE
 embedding_dim = 256
 units = 1024
-vocab_tag_size = len(tag_idx_to_word.word_index)+1
-vocab_report_size = len(report_idx_to_word.word_index)+1
-
-dataset = tf.data.Dataset.from_tensor_slices((train_x, train_x_features, train_y)).shuffle(BUFFER_SIZE)
-dataset = dataset.batch(BATCH_SIZE, drop_remainder=True)
+vocab_tag_size = len(generator.tag_tokenizer)+1
+vocab_report_size = len(generator.report_tokenizer.word_index)+1
 
 encoder = Encoder(vocab_tag_size, embedding_dim, units, BATCH_SIZE)
 decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
@@ -324,37 +145,33 @@ checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                  decoder=decoder)
 for epoch in range(EPOCHS):
     start = time.time()
-
     enc_hidden = encoder.initialize_hidden_state()
     total_loss = 0
+    for batch_idx in range(generator.__len__()):
+        tag_features, image_features, y = generator.__getitem__()
 
-    for (batch, (inp, features, targ)) in enumerate(dataset.take(steps_per_epoch)):
-        batch_loss = train_step(inp, features, targ, enc_hidden)
+        batch_loss = train_step(tag_features, image_features, y, enc_hidden)
         total_loss += batch_loss
 
-        if batch % 100 == 0:
-            print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1,
-                                                       batch,
-                                                       batch_loss.numpy()))
+        if batch_idx % 10 == 0:
+            print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch_idx, batch_loss.numpy()))
   # saving (checkpoint) the model every 2 epochs
     if (epoch + 1) % 2 == 0:
         checkpoint.save(file_prefix = checkpoint_prefix)
-
-    print('Epoch {} Loss {:.4f}'.format(epoch + 1,
-                                      total_loss / steps_per_epoch))
+    generator.on_epoch_end()
+    print('Epoch {} Total Loss {:.4f}'.format(epoch + 1, total_loss))
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
 
-for i in range(20):
-    result, input_sentence, attention_plot = evaluate(val_x[i], val_x_features[i])
+
+tag_features, image_features, y = generator.__getitem__()
+for i in range(len(tag_features)):
+    result, input_sentence, attention_plot = evaluate(tag_features[i], image_features[i])
     print(f"Input: {input_sentence}")
     print(f"Output: {result}")
     expected_output = ""
-    for idx in val_y[i]:
+    for idx in y[i]:
         if idx == 0:
             continue
         else:
-            expected_output += report_idx_to_word.index_word[idx] + " "
+            expected_output += generator.report_tokenizer.index_word[idx] + " "
     print(f"Expected Outputs: {expected_output}")
-
-#attention_plot = attention_plot[:len(result.split(' ')), :len(input_sentence.split(' '))]
-#plot_attention(attention_plot, input_sentence.split(' '), result.split(' '))
