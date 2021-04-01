@@ -30,7 +30,7 @@ class DataGenerator(keras.utils.Sequence):
             self.list_IDs.append(file)
         self.labels = self.obtain_labels()
         self.on_epoch_end()
-        self.tag_tokenizer, self.report_tokenizer = self.obtain_tokenizers()
+        self.tag_tokenizer, self.report_tokenizer, self.tax_max_length, self.report_max_length = self.obtain_tokenizers()
         self.on_epoch_end()
 
     def unicode_to_ascii(self, s):
@@ -55,16 +55,16 @@ class DataGenerator(keras.utils.Sequence):
         w = '<start> ' + w + ' <end>'
         return w
 
-    def tokenize(self, lang, lang_tokenizer):
+    def tokenize(self, lang, lang_tokenizer, max_length):
         tensor = lang_tokenizer.texts_to_sequences(lang)
-        tensor = tf.keras.preprocessing.sequence.pad_sequences(tensor, padding='post')
+        tensor = tf.keras.preprocessing.sequence.pad_sequences(tensor, max_length=max_length, padding='post')
         return tensor
 
-    def preprocess_report(self, x, y, tag_tokenizer=None, report_tokenizer=None):
+    def preprocess_report(self, x, y):
         x = [self.preprocess_sentence(i) for i in x]
-        x = self.tokenize(x, tag_tokenizer)
+        x = self.tokenize(x, self.tag_tokenizer, self.tag_max_length)
         y = [self.preprocess_sentence(i) for i in y]
-        y = self.tokenize(y, report_tokenizer)
+        y = self.tokenize(y, self.report_tokenizer, self.report_max_length)
         return x, y
 
     def obtain_tags(self, x):
@@ -79,15 +79,21 @@ class DataGenerator(keras.utils.Sequence):
         return np.array(x_temp)
 
     def obtain_tokenizers(self):
+        tag_max_length = 0
+        report_max_length = 0
         tag_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
         report_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
         for batch_idx in range(self.__len__()):
             tag, _, report = self.__getitem__(batch_idx, preprocess=False)
             tag = [self.preprocess_sentence(i) for i in tag]
+            for single_tag in tag:
+                tag_max_length = max(tag_max_length, len(single_tag))
             report = [self.preprocess_sentence(i) for i in report]
+            for single_report in report:
+                report_max_length = max(report_max_length, len(single_report))
             tag_tokenizer.fit_on_texts(tag)
             report_tokenizer.fit_on_texts(report)
-        return tag_tokenizer, report_tokenizer
+        return tag_tokenizer, report_tokenizer, tag_max_length, report_max_length
 
     def obtain_labels(self):
         y = {}
@@ -114,7 +120,6 @@ class DataGenerator(keras.utils.Sequence):
         list_IDs_temp = [self.list_IDs[k] for k in indexes]
         # Generate data
         X, image_features, y = self.__data_generation(list_IDs_temp, preprocess)
-        print(type(X), type(image_features), type(y))
         return X, image_features, y
 
     def on_epoch_end(self):
@@ -145,7 +150,7 @@ class DataGenerator(keras.utils.Sequence):
         image_features = np.squeeze(vision_feature_model(X))
         tags = self.obtain_tags(X)
         if preprocess:
-            tags, y= self.preprocess_report(tags, y, self.tag_tokenizer, self.report_tokenizer)
+            tags, y= self.preprocess_report(tags, y)
         #print(f"Tags shape: {tags.shape}")
         #print(f"Train Y shape: {y.shape}")
         return tags, image_features, y
