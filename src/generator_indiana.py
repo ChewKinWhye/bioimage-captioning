@@ -18,19 +18,19 @@ class DataGenerator(keras.utils.Sequence):
         'Initialization'
         self.class_names = class_names
         self.model = model
-        self.image_dimension = image_dimension
+        self.image_dimension = (image_dimension[1], image_dimension[2])
         self.augmenter = iaa.Sequential([iaa.Fliplr(0.5),], random_order=True,)
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.on_epoch_end()
         self.list_IDs = []
         self.base_path = join(dirname(dirname(abspath(__file__))), "data", "indiana-university")
-        self.image_path = join(self.base_path, "images", "images-normalized")
+        self.image_path = join(self.base_path, "images", "images_normalized")
         self.csv_path = join(self.base_path, "indiana_reports.csv")
         for file in os.listdir(self.image_path):
             self.list_IDs.append(file)
         self.labels = self.obtain_labels()
         self.tag_tokenizer, self.report_tokenizer = self.obtain_tokenizer()
+        self.on_epoch_end()
 
     def unicode_to_ascii(self, s):
         return ''.join(c for c in unicodedata.normalize('NFD', s)
@@ -68,7 +68,7 @@ class DataGenerator(keras.utils.Sequence):
         y = [self.preprocess_sentence(i) for i in y]
         y, report_idx_to_word = self.tokenize(y, report_tokenizer)
 
-        return tag_idx_to_word, report_idx_to_word
+        return x, y, tag_idx_to_word, report_idx_to_word
 
     def obtain_tags(self, x):
         x = self.model(x)
@@ -82,9 +82,9 @@ class DataGenerator(keras.utils.Sequence):
         return np.array(x_temp)
 
     def obtain_tokenizer(self):
-        x, y = load_indiana_data((224, 224), self.augmenter)
+        x, y = load_indiana_data(self.image_dimension, self.augmenter)
         tags = self.obtain_tags(x)
-        tag_tokenizer, report_tokenizer = self.preprocess_report(tags, y)
+        _, _, tag_tokenizer, report_tokenizer = self.preprocess_report(tags, y)
         return tag_tokenizer, report_tokenizer
 
     def obtain_labels(self):
@@ -141,7 +141,7 @@ class DataGenerator(keras.utils.Sequence):
                                           [self.model.layers[len(self.model.layers) - 2].output])
         image_features = np.squeeze(vision_feature_model(X))
         tags = self.obtain_tags(X)
-        tags, y = self.preprocess_report(tags, y, self.tag_tokenizer, self.report_tokenizer)
-        print(f"Train X shape: {X.shape}")
+        tags, y, _, _ = self.preprocess_report(tags, y, self.tag_tokenizer, self.report_tokenizer)
+        print(f"Tags shape: {tags.shape}")
         print(f"Train Y shape: {y.shape}")
         return tags, image_features, y

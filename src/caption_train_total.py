@@ -80,8 +80,8 @@ def evaluate(val_x, val_x_features):
                                                              val_x_features)
 
         # storing the attention weights to plot later on
-        attention_weights = tf.reshape(attention_weights, (-1, ))
-        attention_plot[t] = attention_weights.numpy()
+        #attention_weights = tf.reshape(attention_weights, (-1, ))
+        #attention_plot[t] = attention_weights.numpy()
 
         predicted_id = tf.argmax(predictions[0]).numpy()
 
@@ -93,7 +93,7 @@ def evaluate(val_x, val_x_features):
         # the predicted ID is fed back into the model
         dec_input = tf.expand_dims([predicted_id], 0)
 
-    return result, input_sentence, attention_plot
+    return result, input_sentence, None
 
 def plot_attention(attention, sentence, predicted_sentence):
     fig = plt.figure(figsize=(10,10))
@@ -110,6 +110,7 @@ def plot_attention(attention, sentence, predicted_sentence):
 
     plt.show()
 
+# Define Parameters
 cp = ConfigParser()
 config_file = "./config.ini"
 cp.read(config_file)
@@ -119,16 +120,16 @@ base_model_name = cp["DEFAULT"].get("base_model_name")
 use_base_model_weights = cp["TRAIN"].getboolean("use_base_model_weights")
 output_dir = cp["DEFAULT"].get("output_dir")
 output_weights_name = cp["TRAIN"].get("output_weights_name")
+BATCH_SIZE = 64
+embedding_dim = 256
+units = 1024
 
 
 vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
-generator = DataGenerator(image_dimension, model, class_names)
-
-BATCH_SIZE = 64
-embedding_dim = 256
-units = 1024
-vocab_tag_size = len(generator.tag_tokenizer)+1
+generator = DataGenerator(model.layers[0].input_shape[0], model, class_names, batch_size=BATCH_SIZE)
+print(1)
+vocab_tag_size = len(generator.tag_tokenizer.word_index)+1
 vocab_report_size = len(generator.report_tokenizer.word_index)+1
 
 encoder = Encoder(vocab_tag_size, embedding_dim, units, BATCH_SIZE)
@@ -136,34 +137,37 @@ decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
 
 optimizer = tf.keras.optimizers.Adam()
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
-EPOCHS = 10
+EPOCHS = 1
 
 checkpoint_dir = './training_checkpoints'
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                  encoder=encoder,
                                  decoder=decoder)
+print(2)
 for epoch in range(EPOCHS):
     start = time.time()
     enc_hidden = encoder.initialize_hidden_state()
     total_loss = 0
     for batch_idx in range(generator.__len__()):
-        tag_features, image_features, y = generator.__getitem__()
+        tag_features, image_features, y = generator.__getitem__(batch_idx)
 
         batch_loss = train_step(tag_features, image_features, y, enc_hidden)
         total_loss += batch_loss
-
         if batch_idx % 10 == 0:
             print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch_idx, batch_loss.numpy()))
+            result, input_sentence, attention_plot = evaluate(tag_features[0], image_features[0])
+            print(f"Output: {result}")
   # saving (checkpoint) the model every 2 epochs
     if (epoch + 1) % 2 == 0:
         checkpoint.save(file_prefix = checkpoint_prefix)
     generator.on_epoch_end()
     print('Epoch {} Total Loss {:.4f}'.format(epoch + 1, total_loss))
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+    
 
 
-tag_features, image_features, y = generator.__getitem__()
+tag_features, image_features, y = generator.__getitem__(0)
 for i in range(len(tag_features)):
     result, input_sentence, attention_plot = evaluate(tag_features[i], image_features[i])
     print(f"Input: {input_sentence}")
