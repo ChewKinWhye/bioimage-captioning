@@ -29,7 +29,7 @@ class DataGenerator(keras.utils.Sequence):
         for file in os.listdir(self.image_path):
             self.list_IDs.append(file)
         self.labels = self.obtain_labels()
-        self.tag_tokenizer, self.report_tokenizer = self.obtain_tokenizer()
+        self.tag_tokenizer, self.report_tokenizer = self.obtain_tokenizers()
         self.on_epoch_end()
 
     def unicode_to_ascii(self, s):
@@ -54,21 +54,17 @@ class DataGenerator(keras.utils.Sequence):
         w = '<start> ' + w + ' <end>'
         return w
 
-    def tokenize(self, lang, lang_tokenizer=None):
-        if lang_tokenizer is None:
-            lang_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
-            lang_tokenizer.fit_on_texts(lang)
+    def tokenize(self, lang, lang_tokenizer):
         tensor = lang_tokenizer.texts_to_sequences(lang)
         tensor = tf.keras.preprocessing.sequence.pad_sequences(tensor, padding='post')
-        return tensor, lang_tokenizer
+        return tensor
 
     def preprocess_report(self, x, y, tag_tokenizer=None, report_tokenizer=None):
         x = [self.preprocess_sentence(i) for i in x]
-        x, tag_idx_to_word = self.tokenize(x, tag_tokenizer)
+        x = self.tokenize(x, tag_tokenizer)
         y = [self.preprocess_sentence(i) for i in y]
-        y, report_idx_to_word = self.tokenize(y, report_tokenizer)
-
-        return x, y, tag_idx_to_word, report_idx_to_word
+        y = self.tokenize(y, report_tokenizer)
+        return x, y
 
     def obtain_tags(self, x):
         x = self.model(x)
@@ -81,10 +77,15 @@ class DataGenerator(keras.utils.Sequence):
             x_temp.append(tag_sentence)
         return np.array(x_temp)
 
-    def obtain_tokenizer(self):
-        x, y = load_indiana_data(self.image_dimension, self.augmenter)
-        tags = self.obtain_tags(x)
-        _, _, tag_tokenizer, report_tokenizer = self.preprocess_report(tags, y)
+    def obtain_tokenizers(self):
+        tag_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
+        report_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
+        for batch_idx in range(self.__len__()):
+            tag, _, report = self.__getitem__(batch_idx, preprocess=False)
+            tag = [self.preprocess_sentence(i) for i in tag]
+            report = [self.preprocess_sentence(i) for i in report]
+            tag_tokenizer.fit_on_texts(tag)
+            report_tokenizer.fit_on_texts(report)
         return tag_tokenizer, report_tokenizer
 
     def obtain_labels(self):
@@ -104,14 +105,14 @@ class DataGenerator(keras.utils.Sequence):
         'Denotes the number of batches per epoch'
         return int(np.floor(len(self.list_IDs) / self.batch_size))
 
-    def __getitem__(self, index):
+    def __getitem__(self, index, preprocess=True):
         'Generate one batch of data'
         # Generate indexes of the batch
         indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
         # Find list of IDs
         list_IDs_temp = [self.list_IDs[k] for k in indexes]
         # Generate data
-        X, image_features, y = self.__data_generation(list_IDs_temp)
+        X, image_features, y = self.__data_generation(list_IDs_temp, preprocess)
         return X, image_features, y
 
     def on_epoch_end(self):
@@ -120,7 +121,7 @@ class DataGenerator(keras.utils.Sequence):
         if self.shuffle == True:
             np.random.shuffle(self.indexes)
 
-    def __data_generation(self, list_IDs_temp):
+    def __data_generation(self, list_IDs_temp, preprocess):
         'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
         # Initialization
         X = []
@@ -141,7 +142,8 @@ class DataGenerator(keras.utils.Sequence):
                                           [self.model.layers[len(self.model.layers) - 2].output])
         image_features = np.squeeze(vision_feature_model(X))
         tags = self.obtain_tags(X)
-        tags, y, _, _ = self.preprocess_report(tags, y, self.tag_tokenizer, self.report_tokenizer)
+        if preprocess:
+            tags, y= self.preprocess_report(tags, y, self.tag_tokenizer, self.report_tokenizer)
         print(f"Tags shape: {tags.shape}")
         print(f"Train Y shape: {y.shape}")
         return tags, image_features, y
