@@ -129,6 +129,8 @@ def load_indiana_data(image_dimension, augmenter):
     line_count = 0
     for patient in os.listdir(indiana_path_train_path):
         line_count += 1
+        if line_count == 500:
+            break
         image_path = join(indiana_path_train_path, patient)
         patient_id = patient.split("_")[0]
         if patient_id in train_y_data:

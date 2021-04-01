@@ -128,7 +128,6 @@ units = 1024
 vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
 generator = DataGenerator(model.layers[0].input_shape[0], model, class_names, batch_size=BATCH_SIZE)
-print(1)
 vocab_tag_size = len(generator.tag_tokenizer.word_index)+1
 vocab_report_size = len(generator.report_tokenizer.word_index)+1
 
@@ -144,14 +143,14 @@ checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                  encoder=encoder,
                                  decoder=decoder)
-print(2)
 for epoch in range(EPOCHS):
     start = time.time()
     enc_hidden = encoder.initialize_hidden_state()
     total_loss = 0
     for batch_idx in range(generator.__len__()):
         tag_features, image_features, y = generator.__getitem__(batch_idx)
-
+        print(type(tag_features), type(image_features), type(y))
+        print(tag_features.shape, image_features.shape, y.shape)
         batch_loss = train_step(tag_features, image_features, y, enc_hidden)
         total_loss += batch_loss
         if batch_idx % 10 == 0:

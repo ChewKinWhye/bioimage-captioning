@@ -29,6 +29,7 @@ class DataGenerator(keras.utils.Sequence):
         for file in os.listdir(self.image_path):
             self.list_IDs.append(file)
         self.labels = self.obtain_labels()
+        self.on_epoch_end()
         self.tag_tokenizer, self.report_tokenizer = self.obtain_tokenizers()
         self.on_epoch_end()
 
@@ -113,6 +114,7 @@ class DataGenerator(keras.utils.Sequence):
         list_IDs_temp = [self.list_IDs[k] for k in indexes]
         # Generate data
         X, image_features, y = self.__data_generation(list_IDs_temp, preprocess)
+        print(type(X), type(image_features), type(y))
         return X, image_features, y
 
     def on_epoch_end(self):
@@ -144,6 +146,6 @@ class DataGenerator(keras.utils.Sequence):
         tags = self.obtain_tags(X)
         if preprocess:
             tags, y= self.preprocess_report(tags, y, self.tag_tokenizer, self.report_tokenizer)
-        print(f"Tags shape: {tags.shape}")
-        print(f"Train Y shape: {y.shape}")
+        #print(f"Tags shape: {tags.shape}")
+        #print(f"Train Y shape: {y.shape}")
         return tags, image_features, y
