@@ -30,7 +30,7 @@ class DataGenerator(keras.utils.Sequence):
             self.list_IDs.append(file)
         self.labels = self.obtain_labels()
         self.on_epoch_end()
-        self.tag_tokenizer, self.report_tokenizer, self.tax_max_length, self.report_max_length = self.obtain_tokenizers()
+        self.tag_tokenizer, self.report_tokenizer, self.tag_max_length, self.report_max_length = self.obtain_tokenizers()
         self.on_epoch_end()
 
     def unicode_to_ascii(self, s):
@@ -57,7 +57,7 @@ class DataGenerator(keras.utils.Sequence):
 
     def tokenize(self, lang, lang_tokenizer, max_length):
         tensor = lang_tokenizer.texts_to_sequences(lang)
-        tensor = tf.keras.preprocessing.sequence.pad_sequences(tensor, max_length=max_length, padding='post')
+        tensor = tf.keras.preprocessing.sequence.pad_sequences(tensor, maxlen=max_length, padding='post')
         return tensor
 
     def preprocess_report(self, x, y):

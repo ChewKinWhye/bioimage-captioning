@@ -111,7 +111,23 @@ def plot_attention(attention, sentence, predicted_sentence):
     plt.show()
 
 # Define Parameters
+start = time.time()
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+# tf.debugging.set_log_device_placement(True)
+
+# # Create some tensors
+# a = tf.constant([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+# b = tf.constant([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+# c = tf.matmul(a, b)
+
+# print(c)
+# exit()
+
+
+print("Starting...")
 cp = ConfigParser()
+print('Time taken to inialize CP {} sec\n'.format(time.time() - start))
+
 config_file = "./config.ini"
 cp.read(config_file)
 image_dimension = cp["TRAIN"].getint("image_dimension")
@@ -120,19 +136,28 @@ base_model_name = cp["DEFAULT"].get("base_model_name")
 use_base_model_weights = cp["TRAIN"].getboolean("use_base_model_weights")
 output_dir = cp["DEFAULT"].get("output_dir")
 output_weights_name = cp["TRAIN"].get("output_weights_name")
-BATCH_SIZE = 64
+BATCH_SIZE = 16
 embedding_dim = 256
 units = 1024
 
 
 vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
+model.summary()
+print('Time taken to inialize Model {} sec\n'.format(time.time() - start))
+
 generator = DataGenerator(model.layers[0].input_shape[0], model, class_names, batch_size=BATCH_SIZE)
+print('Time taken to inialize Generator {} sec\n'.format(time.time() - start))
+
 vocab_tag_size = len(generator.tag_tokenizer.word_index)+1
 vocab_report_size = len(generator.report_tokenizer.word_index)+1
 
+print('Time taken to inialize Classes {} sec\n'.format(time.time() - start))
+
 encoder = Encoder(vocab_tag_size, embedding_dim, units, BATCH_SIZE)
 decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
+
+print('Time taken to inialize Encoder/decoder {} sec\n'.format(time.time() - start))
 
 optimizer = tf.keras.optimizers.Adam()
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
@@ -143,6 +168,7 @@ checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                  encoder=encoder,
                                  decoder=decoder)
+print("Training has started! {}".format(time.time()))
 for epoch in range(EPOCHS):
     start = time.time()
     enc_hidden = encoder.initialize_hidden_state()
