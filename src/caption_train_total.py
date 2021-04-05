@@ -25,25 +25,41 @@ def loss_function(real, pred):
 
 @tf.function
 def train_step(inp, features, targ, enc_hidden):
-    loss = 0
+    def _body(t, loss, dec_input, dec_hidden):
+        predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output, features)
 
+        loss += loss_function(targ[:, t], predictions)
+
+        # using teacher forcing
+        dec_input = tf.expand_dims(targ[:, t], 1)
+        return t+1, loss, dec_input, dec_hidden
+
+    loss = 0
     with tf.GradientTape() as tape:
         # Pass input through model and tokenize
         enc_output, enc_hidden = encoder(inp, enc_hidden)
 
-        dec_hidden = enc_hidden
+        # dec_hidden = enc_hidden
 
         dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']] * BATCH_SIZE, 1)
 
         # Teacher forcing - feeding the target as the next input
-        for t in range(1, targ.shape[1]):
-            # passing enc_output to the decoder
-            predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output, features)
+        
+        _t, loss, _di, _dh = tf.while_loop(
+            lambda t, _l, _di, _dh: t < targ.shape[1],
+            _body,
+            (1, tf.constant(0, dtype=tf.float32), dec_input, enc_hidden)
 
-            loss += loss_function(targ[:, t], predictions)
+        )
+        # for t in range(1, targ.shape[1]):
+        #     # passing enc_output to the decoder
+        #     print("Calling decoder...")
+        #     predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output, features)
 
-            # using teacher forcing
-            dec_input = tf.expand_dims(targ[:, t], 1)
+        #     loss += loss_function(targ[:, t], predictions)
+
+        #     # using teacher forcing
+        #     dec_input = tf.expand_dims(targ[:, t], 1)
 
     batch_loss = (loss / int(targ.shape[1]))
 
@@ -110,20 +126,36 @@ def plot_attention(attention, sentence, predicted_sentence):
 
     plt.show()
 
+# CODE STARTS HERE
+
 # Define Parameters
 start = time.time()
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 # tf.debugging.set_log_device_placement(True)
 
-# # Create some tensors
+# # To test GPU usage
 # a = tf.constant([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
 # b = tf.constant([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
 # c = tf.matmul(a, b)
 
-# print(c)
-# exit()
+BATCH_SIZE = 10 # > 16 will cause training to crash on David's local machine
+embedding_dim = 256
+units = 1024
+FREEZE_VISION_MODEL = False # Freeze the model
+EPOCHS = 50
 
+args = sys.argv[1:]
+for idx, arg in enumerate(args):
+    if arg == "-bs":
+        BATCH_SIZE = int(args[idx+1])
 
+    if arg == "-fv":
+        FREEZE_VISION_MODEL = True
+    
+    if arg == "-e":
+        EPOCHS = min(int(args[idx+1]),100)
+
+    
 print("Starting...")
 cp = ConfigParser()
 print('Time taken to inialize CP {} sec\n'.format(time.time() - start))
@@ -136,15 +168,15 @@ base_model_name = cp["DEFAULT"].get("base_model_name")
 use_base_model_weights = cp["TRAIN"].getboolean("use_base_model_weights")
 output_dir = cp["DEFAULT"].get("output_dir")
 output_weights_name = cp["TRAIN"].get("output_weights_name")
-BATCH_SIZE = 16
-embedding_dim = 256
-units = 1024
+
+
 
 
 vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
+model.trainable = not FREEZE_VISION_MODEL 
 model.summary()
-print('Time taken to inialize Model {} sec\n'.format(time.time() - start))
+print('Time taken to inialize Vision Model (frozen) {} sec\n'.format(time.time() - start))
 
 generator = DataGenerator(model.layers[0].input_shape[0], model, class_names, batch_size=BATCH_SIZE)
 print('Time taken to inialize Generator {} sec\n'.format(time.time() - start))
@@ -161,7 +193,7 @@ print('Time taken to inialize Encoder/decoder {} sec\n'.format(time.time() - sta
 
 optimizer = tf.keras.optimizers.Adam()
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
-EPOCHS = 1
+
 
 checkpoint_dir = './training_checkpoints'
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
@@ -175,8 +207,8 @@ for epoch in range(EPOCHS):
     total_loss = 0
     for batch_idx in range(generator.__len__()):
         tag_features, image_features, y = generator.__getitem__(batch_idx)
-        print(type(tag_features), type(image_features), type(y))
-        print(tag_features.shape, image_features.shape, y.shape)
+        # print(type(tag_features), type(image_features), type(y))
+        # print(tag_features.shape, image_features.shape, y.shape)
         batch_loss = train_step(tag_features, image_features, y, enc_hidden)
         total_loss += batch_loss
         if batch_idx % 10 == 0:
