@@ -11,6 +11,7 @@ from vision_model import get_model
 from caption_models import Encoder, Decoder
 from os.path import dirname, abspath, join
 import os
+import sys
 
 
 def loss_function(real, pred):
@@ -141,23 +142,26 @@ print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 BATCH_SIZE = 10 # > 16 will cause training to crash on David's local machine
 embedding_dim = 256
 units = 1024
-FREEZE_VISION_MODEL = False # Freeze the model
-EPOCHS = 50
+FREEZE_VISION_MODEL = True # Freeze the model
+EPOCHS = 80
+LEARN_RATE = 0.001
 
 args = sys.argv[1:]
 for idx, arg in enumerate(args):
     if arg == "-bs":
         BATCH_SIZE = int(args[idx+1])
+        print("Batch size set to", BATCH_SIZE)
 
-    if arg == "-fv":
-        FREEZE_VISION_MODEL = True
+    if arg == "-tv":
+        FREEZE_VISION_MODEL = False
     
     if arg == "-e":
-        EPOCHS = min(int(args[idx+1]),100)
+        EPOCHS = min(int(args[idx+1]),200)
 
     
 print("Starting...")
 cp = ConfigParser()
+print("Batch size: {} Epochs: {} Freeze Vision Model: {}")
 print('Time taken to inialize CP {} sec\n'.format(time.time() - start))
 
 config_file = "./config.ini"
@@ -175,7 +179,7 @@ output_weights_name = cp["TRAIN"].get("output_weights_name")
 vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
 model.trainable = not FREEZE_VISION_MODEL 
-model.summary()
+# model.summary()
 print('Time taken to inialize Vision Model (frozen) {} sec\n'.format(time.time() - start))
 
 generator = DataGenerator(model.layers[0].input_shape[0], model, class_names, batch_size=BATCH_SIZE)
@@ -191,7 +195,7 @@ decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
 
 print('Time taken to inialize Encoder/decoder {} sec\n'.format(time.time() - start))
 
-optimizer = tf.keras.optimizers.Adam()
+optimizer = tf.keras.optimizers.Adam(learning_rate = LEARN_RATE)
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
 
 
