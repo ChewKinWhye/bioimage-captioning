@@ -158,10 +158,12 @@ for idx, arg in enumerate(args):
     if arg == "-e":
         EPOCHS = min(int(args[idx+1]),200)
 
+    if arg == "-lr":
+        LEARN_RATE = min(float(args[idx+1]),0.01)
     
 print("Starting...")
 cp = ConfigParser()
-print("Batch size: {} Epochs: {} Freeze Vision Model: {}")
+print("Batch size: {} Epochs: {} Learn rate: {} Freeze Vision Model: {}".format(BATCH_SIZE, EPOCHS, LEARN_RATE, FREEZE_VISION_MODEL))
 print('Time taken to inialize CP {} sec\n'.format(time.time() - start))
 
 config_file = "./config.ini"
