@@ -6,7 +6,7 @@ import pickle
 import shutil
 import warnings
 from tensorflow.keras.callbacks import Callback
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, accuracy_score
 
 
 class MultipleClassAUROC(Callback):
@@ -60,14 +60,15 @@ class MultipleClassAUROC(Callback):
         y: [(#samples, 1), (#samples, 1) ... (#samples, 1)]
         """
         ## Use model.predict - predict_generator is deprecated
-        y_hat = self.model.predict_generator(self.sequence, workers=self.workers)
+        y_hat = self.model.predict(self.sequence, workers=self.workers)
         y = self.sequence.get_y_true()
 
         print("***Epoch {} ***".format(epoch+1))
         current_auroc = []
         for i in range(len(self.class_names)):
             try:
-                score = roc_auc_score(y[:, i], y_hat[:, i])
+                preds = [round(x) for x in y_hat[:,i]]
+                score = accuracy_score(y[:, i], preds)
             except ValueError:
                 print("\n Ground truth: \n")
                 print(y[:, i])
