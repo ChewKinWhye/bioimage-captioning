@@ -177,11 +177,12 @@ output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 
 
+print("Num_classes", len(class_names))
 
-vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
+vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "outputindiana", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
 model.trainable = not FREEZE_VISION_MODEL 
-# model.summary()
+# model.summary() # Debug
 print('Time taken to inialize Vision Model (frozen) {} sec\n'.format(time.time() - start))
 
 generator = DataGenerator(model.layers[0].input_shape[0], model, class_names, batch_size=BATCH_SIZE)
