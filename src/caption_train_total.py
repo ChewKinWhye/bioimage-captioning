@@ -143,7 +143,7 @@ BATCH_SIZE = 10 # > 16 will cause training to crash on David's local machine
 embedding_dim = 256
 units = 1024
 FREEZE_VISION_MODEL = True # Freeze the model
-EPOCHS = 80
+EPOCHS = 20
 LEARN_RATE = 0.001
 
 args = sys.argv[1:]
@@ -161,9 +161,15 @@ for idx, arg in enumerate(args):
     if arg == "-lr":
         LEARN_RATE = min(float(args[idx+1]),0.01)
     
+    if arg == "-u":
+        units = min(int(args[idx+1]), 1024)
+    
+    if arg == "-em":
+        embedding_dim = int(args[idx+1])
+    
 print("Starting...")
 cp = ConfigParser()
-print("Batch size: {} Epochs: {} Learn rate: {} Freeze Vision Model: {}".format(BATCH_SIZE, EPOCHS, LEARN_RATE, FREEZE_VISION_MODEL))
+print("Batch size: {} Epochs: {} Learn rate: {} Freeze Vision Model: {} Encoder/Decoder Units {}".format(BATCH_SIZE, EPOCHS, LEARN_RATE, FREEZE_VISION_MODEL, units))
 print('Time taken to inialize CP {} sec\n'.format(time.time() - start))
 
 config_file = "./config.ini"
@@ -185,16 +191,16 @@ model = get_model(class_names, vision_model_path)
 
 model.trainable = not FREEZE_VISION_MODEL 
 # model.summary() # Debug
-print('Time taken to inialize Vision Model (frozen) {} sec\n'.format(time.time() - start))
+print('Time taken to inialize Vision Model {} sec\n'.format(time.time() - start))
 
 generator = DataGenerator(model.layers[0].input_shape[0], model, class_names, batch_size=BATCH_SIZE)
 print('Time taken to inialize Generator {} sec\n'.format(time.time() - start))
 
 vocab_tag_size = len(generator.tag_tokenizer.word_index)+1
 vocab_report_size = len(generator.report_tokenizer.word_index)+1
+# vocab_report_size = generator.report_max_length + 1
 
 print('Time taken to inialize Classes {} sec\n'.format(time.time() - start))
-
 encoder = Encoder(vocab_tag_size, embedding_dim, units, BATCH_SIZE)
 decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
 
@@ -210,17 +216,21 @@ checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                  encoder=encoder,
                                  decoder=decoder)
 print("Training has started! {}".format(time.time()))
+batches_per_epoch = generator.__len__()
+print("Batches per epoch {}".format(batches_per_epoch))
 for epoch in range(EPOCHS):
     start = time.time()
     enc_hidden = encoder.initialize_hidden_state()
     total_loss = 0
+    count = 0
     for batch_idx in range(generator.__len__()):
         tag_features, image_features, y = generator.__getitem__(batch_idx)
         # print(type(tag_features), type(image_features), type(y))
         # print(tag_features.shape, image_features.shape, y.shape)
         batch_loss = train_step(tag_features, image_features, y, enc_hidden)
         total_loss += batch_loss
-        if batch_idx % 10 == 0:
+        count += BATCH_SIZE
+        if batch_idx % (batches_per_epoch//5) == 0:
             print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch_idx, batch_loss.numpy()))
             result, input_sentence, attention_plot = evaluate(tag_features[0], image_features[0])
             print(f"Output: {result}")
@@ -228,10 +238,10 @@ for epoch in range(EPOCHS):
     if (epoch + 1) % 2 == 0:
         checkpoint.save(file_prefix = checkpoint_prefix)
     generator.on_epoch_end()
+    print("Counted: %s" % count)
     print('Epoch {} Total Loss {:.4f}'.format(epoch + 1, total_loss))
-    print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+    print('Time taken for 1 epoch {:.4f} sec\n'.format(time.time() - start))
     
-
 
 tag_features, image_features, y = generator.__getitem__(0)
 for i in range(len(tag_features)):

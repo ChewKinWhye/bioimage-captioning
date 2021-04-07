@@ -28,9 +28,12 @@ class DataGenerator(keras.utils.Sequence):
         self.tokenizer_path = join(dirname(dirname(abspath(__file__))), "outs", "tokenizer")
         self.image_path = join(self.base_path, "images", "images_normalized")
         self.csv_path = join(self.base_path, "indiana_reports.csv")
+        self.labels, sample_names = self.obtain_labels()
         for file in os.listdir(self.image_path):
-            self.list_IDs.append(file)
-        self.labels = self.obtain_labels()
+            name = file.split("_")[0]
+            if name in sample_names:
+                # Exclude images that are not present in indiana_reports.csv
+                self.list_IDs.append(file)
         self.on_epoch_end()
         self.tag_tokenizer, self.report_tokenizer, self.tag_max_length, self.report_max_length = self.obtain_tokenizers()
         self.on_epoch_end()
@@ -129,6 +132,7 @@ class DataGenerator(keras.utils.Sequence):
 
     def obtain_labels(self):
         y = {}
+        sample_names = {}
         with open(join(self.csv_path)) as csv_file:
             line_count = 0
             csv_reader = csv.reader(csv_file, delimiter=",")
@@ -138,8 +142,10 @@ class DataGenerator(keras.utils.Sequence):
                     continue
                 else:
                     line_count += 1
+                    sample_names[row[0]] = 1
                     y[row[0]] = row[6]
-        return y
+        return y, sample_names
+        
     def __len__(self):
         'Denotes the number of batches per epoch'
         return int(np.floor(len(self.list_IDs) / self.batch_size))
