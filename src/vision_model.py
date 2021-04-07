@@ -120,7 +120,7 @@ class_names = ['normal',
 
 def get_model(class_names,
               weights_path,
-              input_shape=(224, 224, 3)):
+              input_shape=(256, 256, 3)):
 
     img_input = Input(shape=input_shape)
     base_model = DenseNet169(
