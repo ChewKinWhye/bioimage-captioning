@@ -98,6 +98,8 @@ class DataGenerator(keras.utils.Sequence):
                 report_max_length = json.load(json_file)
 
         else:
+            if not os.path.exists(self.tokenizer_path):
+                os.makedirs(self.tokenizer_path)
             tag_max_length = 0
             report_max_length = 0
             tag_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
@@ -115,9 +117,9 @@ class DataGenerator(keras.utils.Sequence):
             tag_tokenizer_json = tag_tokenizer.to_json()
             with open(join(self.tokenizer_path, 'tag_tokenizer.json'), 'w') as outfile:
                 json.dump(tag_tokenizer_json, outfile)
-            report_tokenizer = report_tokenizer.to_json()
+            report_tokenizer_json = report_tokenizer.to_json()
             with open(join(self.tokenizer_path, 'report_tokenizer.json'), 'w') as outfile:
-                json.dump(report_tokenizer, outfile)
+                json.dump(report_tokenizer_json, outfile)
             with open(join(self.tokenizer_path, 'tag_max_length.json'), 'w') as outfile:
                 json.dump(tag_max_length, outfile)
             with open(join(self.tokenizer_path, 'report_max_length.json'), 'w') as outfile:

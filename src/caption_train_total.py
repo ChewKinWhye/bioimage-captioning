@@ -176,11 +176,11 @@ output_dir = cp["DEFAULT"].get("output_dir")
 output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 
-vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
+# vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 
 print("Num_classes", len(class_names))
 
-# vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "outputindiana", "best_weights.h5")
+vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "outputindiana", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
 
 model.trainable = not FREEZE_VISION_MODEL 
