@@ -56,6 +56,7 @@ class Decoder(tf.keras.Model):
         self.batch_sz = batch_sz
         self.dec_units = dec_units
         self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
+
         self.gru = tf.keras.layers.GRU(self.dec_units,
                                        return_sequences=True,
                                        return_state=True,
@@ -84,3 +85,43 @@ class Decoder(tf.keras.Model):
         x = self.fc(output)
 
         return x, state, attention_weights
+
+class Sentence_Decoder(tf.keras.Model):
+    def __init__(self, topic_dim, dec_units, batch_sz, stop_dim):
+        super(Decoder, self).__init__()
+        self.batch_sz = batch_sz
+        self.dec_units = dec_units
+
+        self.sentence_gru = tf.keras.layers.GRU(self.dec_units,
+                                               return_sequences=True,
+                                               return_state=True,
+                                               recurrent_initializer='glorot_uniform')
+        self.output_fc = tf.keras.layers.Dense(topic_dim)
+        self.context_fc = tf.keras.layers.Dense(topic_dim)
+
+        # used for attention
+        self.attention = BahdanauAttention(self.dec_units)
+
+        self.stop_prev = tf.keras.layers.Dense(stop_dim)
+        self.stop_curr = tf.keras.layers.Dense(stop_dim)
+        self.stop_total = tf.keras.layers.Dense(1)
+
+
+    def call(self, hidden, enc_output, features):
+        # enc_output shape == (batch_size, max_length, hidden_size)
+        context_vector, attention_weights = self.attention(hidden, enc_output)
+
+        # x shape after concatenation == (batch_size, 1, embedding_dim + hidden_size)
+        x = tf.concat([tf.expand_dims(context_vector, 1), tf.expand_dims(features, 1)], axis=-1)
+
+        # passing the concatenated vector to the GRU
+        output, state = self.gru(x)
+        # output shape == (batch_size * 1, hidden_size)
+        output = tf.reshape(output, (-1, output.shape[2]))
+
+        # output shape == (batch_size, topic_dim)
+        topic_sentence = tf.keras.activations.tanh(self.context_fc(context_vector) + self.output_fc(output))
+
+        stop_control = self.stop_total(tf.keras.activations.tanh(self.stop_prev(hidden) + self.stop_curr(state)))
+
+        return topic_sentence, state, stop_control, attention_weights

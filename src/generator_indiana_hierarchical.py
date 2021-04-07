@@ -10,7 +10,6 @@ import re
 import tensorflow as tf
 from data import load_indiana_data
 from tensorflow.keras import backend as K
-import json
 
 
 class DataGenerator(keras.utils.Sequence):
@@ -25,7 +24,6 @@ class DataGenerator(keras.utils.Sequence):
         self.shuffle = shuffle
         self.list_IDs = []
         self.base_path = join(dirname(dirname(abspath(__file__))), "data", "indiana-university")
-        self.tokenizer_path = join(dirname(dirname(abspath(__file__))), "outs", "tokenizer")
         self.image_path = join(self.base_path, "images", "images_normalized")
         self.csv_path = join(self.base_path, "indiana_reports.csv")
         for file in os.listdir(self.image_path):
@@ -81,48 +79,20 @@ class DataGenerator(keras.utils.Sequence):
         return np.array(x_temp)
 
     def obtain_tokenizers(self):
-        if os.path.isfile(join(self.tokenizer_path, 'tag_tokenizer.json')):
-            # Load tokenizers
-            with open(join(self.tokenizer_path, 'tag_tokenizer.json')) as json_file:
-                tag_tokenizer_json = json.load(json_file)
-            tag_tokenizer = keras.preprocessing.text.tokenizer_from_json(tag_tokenizer_json)
-
-            with open(join(self.tokenizer_path, 'report_tokenizer.json')) as json_file:
-                report_tokenizer_json = json.load(json_file)
-            report_tokenizer = keras.preprocessing.text.tokenizer_from_json(report_tokenizer_json)
-
-            with open(join(self.tokenizer_path, 'tag_max_length.json')) as json_file:
-                tag_max_length = json.load(json_file)
-
-            with open(join(self.tokenizer_path, 'report_max_length.json')) as json_file:
-                report_max_length = json.load(json_file)
-
-        else:
-            tag_max_length = 0
-            report_max_length = 0
-            tag_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
-            report_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
-            for batch_idx in range(self.__len__()):
-                tag, _, report = self.__getitem__(batch_idx, preprocess=False)
-                tag = [self.preprocess_sentence(i) for i in tag]
-                for single_tag in tag:
-                    tag_max_length = max(tag_max_length, len(single_tag))
-                report = [self.preprocess_sentence(i) for i in report]
-                for single_report in report:
-                    report_max_length = max(report_max_length, len(single_report))
-                tag_tokenizer.fit_on_texts(tag)
-                report_tokenizer.fit_on_texts(report)
-            tag_tokenizer_json = tag_tokenizer.to_json()
-            with open(join(self.tokenizer_path, 'tag_tokenizer.json'), 'w') as outfile:
-                json.dump(tag_tokenizer_json, outfile)
-            report_tokenizer = report_tokenizer.to_json()
-            with open(join(self.tokenizer_path, 'report_tokenizer.json'), 'w') as outfile:
-                json.dump(report_tokenizer, outfile)
-            with open(join(self.tokenizer_path, 'tag_max_length.json'), 'w') as outfile:
-                json.dump(tag_max_length, outfile)
-            with open(join(self.tokenizer_path, 'report_max_length.json'), 'w') as outfile:
-                json.dump(report_max_length, outfile)
-
+        tag_max_length = 0
+        report_max_length = 0
+        tag_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
+        report_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
+        for batch_idx in range(self.__len__()):
+            tag, _, report = self.__getitem__(batch_idx, preprocess=False)
+            tag = [self.preprocess_sentence(i) for i in tag]
+            for single_tag in tag:
+                tag_max_length = max(tag_max_length, len(single_tag))
+            report = [self.preprocess_sentence(i) for i in report]
+            for single_report in report:
+                report_max_length = max(report_max_length, len(single_report))
+            tag_tokenizer.fit_on_texts(tag)
+            report_tokenizer.fit_on_texts(report)
         return tag_tokenizer, report_tokenizer, tag_max_length, report_max_length
 
     def obtain_labels(self):
@@ -163,6 +133,7 @@ class DataGenerator(keras.utils.Sequence):
         # Initialization
         X = []
         y = []
+        stop_labels = []
         # Generate data
         for i, ID in enumerate(list_IDs_temp):
             image = Image.open(join(self.image_path, ID)).resize(self.image_dimension)
@@ -170,6 +141,8 @@ class DataGenerator(keras.utils.Sequence):
             image_array = image_array / 255.
             X.append(image_array)
             y.append(self.labels[ID.split("_")[0]])
+            stop_labels.append(self.labels[ID.split("_")[0]].count("."))
+        print(max(stop_labels))
         X = np.array(X)
         X = self.augmenter.augment_images(X)
         imagenet_mean = np.array([0.485, 0.456, 0.406])
@@ -180,7 +153,7 @@ class DataGenerator(keras.utils.Sequence):
         image_features = np.squeeze(vision_feature_model(X))
         tags = self.obtain_tags(X)
         if preprocess:
-            tags, y= self.preprocess_report(tags, y)
+            tags, y = self.preprocess_report(tags, y)
         #print(f"Tags shape: {tags.shape}")
         #print(f"Train Y shape: {y.shape}")
         return tags, image_features, y

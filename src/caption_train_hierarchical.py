@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
 import numpy as np
-from generator_indiana import DataGenerator
+from generator_indiana_hierarchical import DataGenerator
 import time
 from configparser import ConfigParser
 from vision_model import get_model
-from caption_models import Encoder, Decoder
+from caption_models import Encoder, Decoder, Sentence_Decoder
 from os.path import dirname, abspath, join
 import os
 import sys
@@ -24,50 +24,28 @@ def loss_function(real, pred):
   return tf.reduce_mean(loss_)
 
 
-@tf.function
-def train_step(inp, features, targ, enc_hidden):
-    def _body(t, loss, dec_input, dec_hidden):
-        predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output, features)
-
-        loss += loss_function(targ[:, t], predictions)
-
-        # using teacher forcing
-        dec_input = tf.expand_dims(targ[:, t], 1)
-        return t+1, loss, dec_input, dec_hidden
-
+def train_step(inp, features, targ, stop_labels, enc_hidden):
     loss = 0
     with tf.GradientTape() as tape:
         # Pass input through model and tokenize
         enc_output, enc_hidden = encoder(inp, enc_hidden)
 
-        # dec_hidden = enc_hidden
-
-        dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']] * BATCH_SIZE, 1)
+        dec_hidden = enc_hidden
 
         # Teacher forcing - feeding the target as the next input
-        
-        _t, loss, _di, _dh = tf.while_loop(
-            lambda t, _l, _di, _dh: t < targ.shape[1],
-            _body,
-            (1, tf.constant(0, dtype=tf.float32), dec_input, enc_hidden)
+        dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']] * BATCH_SIZE, 1)
 
-        )
-        # for t in range(1, targ.shape[1]):
-        #     # passing enc_output to the decoder
-        #     print("Calling decoder...")
-        #     predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output, features)
+        for t in range(1, targ.shape[1]):
+            # passing enc_output to the decoder
+            topic_sentence, dec_hidden, stop_control, _ = sentence_decoder(dec_hidden, enc_output, features)
+            loss += loss_function(targ[:, t], topic_sentence)
 
-        #     loss += loss_function(targ[:, t], predictions)
-
-        #     # using teacher forcing
-        #     dec_input = tf.expand_dims(targ[:, t], 1)
+            # using teacher forcing
+            dec_input = tf.expand_dims(targ[:, t], 1)
 
     batch_loss = (loss / int(targ.shape[1]))
-
-    variables = encoder.trainable_variables + decoder.trainable_variables
-
+    variables = encoder.trainable_variables + sentence_decoder.trainable_variables
     gradients = tape.gradient(loss, variables)
-
     optimizer.apply_gradients(zip(gradients, variables))
 
     return batch_loss
@@ -145,6 +123,8 @@ units = 1024
 FREEZE_VISION_MODEL = True # Freeze the model
 EPOCHS = 80
 LEARN_RATE = 0.001
+stop_dim = 256
+topic_dim = 1024
 
 args = sys.argv[1:]
 for idx, arg in enumerate(args):
@@ -176,6 +156,8 @@ output_dir = cp["DEFAULT"].get("output_dir")
 output_weights_name = cp["TRAIN"].get("output_weights_name")
 
 
+
+
 vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "output4", "best_weights.h5")
 model = get_model(class_names, vision_model_path)
 model.trainable = not FREEZE_VISION_MODEL 
@@ -191,7 +173,7 @@ vocab_report_size = len(generator.report_tokenizer.word_index)+1
 print('Time taken to inialize Classes {} sec\n'.format(time.time() - start))
 
 encoder = Encoder(vocab_tag_size, embedding_dim, units, BATCH_SIZE)
-decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
+sentence_decoder = Sentence_Decoder(topic_dim, units, BATCH_SIZE, stop_dim)
 
 print('Time taken to inialize Encoder/decoder {} sec\n'.format(time.time() - start))
 
@@ -203,7 +185,7 @@ checkpoint_dir = './training_checkpoints'
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                  encoder=encoder,
-                                 decoder=decoder)
+                                 decoder=sentence_decoder)
 print("Training has started! {}".format(time.time()))
 for epoch in range(EPOCHS):
     start = time.time()
