@@ -12,6 +12,7 @@ from caption_models import Encoder, Decoder
 from os.path import dirname, abspath, join
 import os
 import sys
+from nltk.translate.bleu_score import sentence_bleu
 
 
 def loss_function(real, pred):
@@ -73,15 +74,15 @@ def train_step(inp, features, targ, enc_hidden):
     return batch_loss
 
 
-def evaluate(val_x, val_x_features):
+def predict(val_x, val_x_features):
     attention_plot = np.zeros((vocab_report_size, vocab_tag_size))
-    input_sentence = ""
+    input_sentence = []
     for idx in val_x:
         if idx == 0:
             continue
-        input_sentence += generator.tag_tokenizer.index_word[idx] + ' '
+        input_sentence.append(generator.tag_tokenizer.index_word[idx])
     
-    result = ''
+    result = []
     val_x_features = np.expand_dims(val_x_features, axis=0)
     val_x = np.expand_dims(val_x, axis=0)
     hidden = [tf.zeros((1, units))]
@@ -102,7 +103,7 @@ def evaluate(val_x, val_x_features):
 
         predicted_id = tf.argmax(predictions[0]).numpy()
 
-        result += generator.report_tokenizer.index_word[predicted_id] + ' '
+        result.append(generator.report_tokenizer.index_word[predicted_id])
 
         if generator.report_tokenizer.index_word[predicted_id] == '<end>':
             return result, input_sentence, attention_plot
@@ -127,8 +128,29 @@ def plot_attention(attention, sentence, predicted_sentence):
 
     plt.show()
 
-# CODE STARTS HERE
 
+def evaluate():
+    bleu_1_score, bleu_2_score, bleu_3_score, bleu_4_score = 0, 0, 0, 0
+    for batch_idx in range(generator.__testlen__()):
+        tag_features, image_features, y = generator.__gettestitem__(batch_idx)
+        for i in range(len(tag_features)):
+            prediction, _, _ = predict(tag_features[i], image_features[i])
+            expected_output = []
+            for idx in y[i]:
+                if idx == 0:
+                    continue
+                else:
+                    expected_output.append(generator.report_tokenizer.index_word[idx])
+            bleu_1_score += sentence_bleu([expected_output], prediction, weights=(1, 0, 0, 0))
+            bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
+            bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
+            bleu_4_score += sentence_bleu([expected_output], prediction, weights=(0.25, 0.25, 0.25, 0.25))
+    print(f"Predicted: {prediction}")
+    print(f"Expected: {expected_output}")
+    return bleu_1_score/len(tag_features), bleu_2_score/len(tag_features), \
+           bleu_3_score/len(tag_features), bleu_4_score/len(tag_features)
+
+# CODE STARTS HERE
 # Define Parameters
 start = time.time()
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
@@ -192,7 +214,7 @@ print('Time taken to inialize Generator {} sec\n'.format(time.time() - start))
 
 vocab_tag_size = len(generator.tag_tokenizer.word_index)+1
 vocab_report_size = len(generator.report_tokenizer.word_index)+1
-
+print(f"Number of tags: {vocab_tag_size}\n Number of words: {vocab_report_size}")
 print('Time taken to inialize Classes {} sec\n'.format(time.time() - start))
 
 encoder = Encoder(vocab_tag_size, embedding_dim, units, BATCH_SIZE)
@@ -209,39 +231,22 @@ checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
 checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                  encoder=encoder,
                                  decoder=decoder)
-print("Training has started! {}".format(time.time()))
+print("Training has started! {}".format(time.time() - start))
 for epoch in range(EPOCHS):
     start = time.time()
     enc_hidden = encoder.initialize_hidden_state()
     total_loss = 0
     for batch_idx in range(generator.__len__()):
         tag_features, image_features, y = generator.__getitem__(batch_idx)
-        # print(type(tag_features), type(image_features), type(y))
-        # print(tag_features.shape, image_features.shape, y.shape)
         batch_loss = train_step(tag_features, image_features, y, enc_hidden)
         total_loss += batch_loss
-        if batch_idx % 10 == 0:
+        if batch_idx % 1 == 0:
             print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch_idx, batch_loss.numpy()))
-            result, input_sentence, attention_plot = evaluate(tag_features[0], image_features[0])
-            print(f"Output: {result}")
-  # saving (checkpoint) the model every 2 epochs
+            print(evaluate())
+
+    # saving (checkpoint) the model every 2 epochs
     if (epoch + 1) % 2 == 0:
-        checkpoint.save(file_prefix = checkpoint_prefix)
+        checkpoint.save(file_prefix=checkpoint_prefix)
     generator.on_epoch_end()
     print('Epoch {} Total Loss {:.4f}'.format(epoch + 1, total_loss))
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
-    
-
-
-tag_features, image_features, y = generator.__getitem__(0)
-for i in range(len(tag_features)):
-    result, input_sentence, attention_plot = evaluate(tag_features[i], image_features[i])
-    print(f"Input: {input_sentence}")
-    print(f"Output: {result}")
-    expected_output = ""
-    for idx in y[i]:
-        if idx == 0:
-            continue
-        else:
-            expected_output += generator.report_tokenizer.index_word[idx] + " "
-    print(f"Expected Outputs: {expected_output}")

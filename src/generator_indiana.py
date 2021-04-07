@@ -30,9 +30,12 @@ class DataGenerator(keras.utils.Sequence):
         self.csv_path = join(self.base_path, "indiana_reports.csv")
         for file in os.listdir(self.image_path):
             self.list_IDs.append(file)
+        self.train_IDs = self.list_IDs[:int(len(self.list_IDs)*0.9)]
+        self.test_IDs = self.list_IDs[:int(len(self.list_IDs) * 0.1)]
         self.labels = self.obtain_labels()
         self.on_epoch_end()
-        self.tag_tokenizer, self.report_tokenizer, self.tag_max_length, self.report_max_length = self.obtain_tokenizers()
+        self.tag_tokenizer, self.report_tokenizer = self.obtain_tokenizers()
+        self.tag_max_length, self.report_max_length = self.obtain_max_lengths()
         self.on_epoch_end()
 
     def unicode_to_ascii(self, s):
@@ -49,7 +52,7 @@ class DataGenerator(keras.utils.Sequence):
         w = re.sub(r'[" "]+', " ", w)
 
         # replacing everything with space except (a-z, A-Z, ".", "?", "!", ",")
-        w = re.sub(r"[^a-zA-Z?.!,¿]+", " ", w)
+        w = re.sub(r"[^a-zA-Z?.!,¿_]+", " ", w)
 
         w = w.strip()
         # adding a start and an end token to the sentence
@@ -80,6 +83,34 @@ class DataGenerator(keras.utils.Sequence):
             x_temp.append(tag_sentence)
         return np.array(x_temp)
 
+    def obtain_max_lengths(self):
+        if os.path.isfile(join(self.tokenizer_path, 'report_max_length.json')):
+            with open(join(self.tokenizer_path, 'tag_max_length.json')) as json_file:
+                tag_max_length = json.load(json_file)
+
+            with open(join(self.tokenizer_path, 'report_max_length.json')) as json_file:
+                report_max_length = json.load(json_file)
+        else:
+            if not os.path.exists(self.tokenizer_path):
+                os.makedirs(self.tokenizer_path)
+            tag_max_length = 0
+            report_max_length = 0
+            for batch_idx in range(self.__len__()):
+                tag, _, report = self.__getitem__(batch_idx, preprocess=False)
+                tag = [self.preprocess_sentence(i) for i in tag]
+                report = [self.preprocess_sentence(i) for i in report]
+                tag_tensor = self.tag_tokenizer.texts_to_sequences(tag)
+                report_tensor = self.report_tokenizer.texts_to_sequences(report)
+                for i in range(len(tag_tensor)):
+                    tag_max_length = max(tag_max_length, len(tag_tensor[i]))
+                    report_max_length = max(report_max_length, len(report_tensor[i]))
+            with open(join(self.tokenizer_path, 'tag_max_length.json'), 'w') as outfile:
+                json.dump(tag_max_length, outfile)
+            with open(join(self.tokenizer_path, 'report_max_length.json'), 'w') as outfile:
+                json.dump(report_max_length, outfile)
+
+        return tag_max_length, report_max_length
+
     def obtain_tokenizers(self):
         if os.path.isfile(join(self.tokenizer_path, 'tag_tokenizer.json')):
             # Load tokenizers
@@ -91,27 +122,15 @@ class DataGenerator(keras.utils.Sequence):
                 report_tokenizer_json = json.load(json_file)
             report_tokenizer = keras.preprocessing.text.tokenizer_from_json(report_tokenizer_json)
 
-            with open(join(self.tokenizer_path, 'tag_max_length.json')) as json_file:
-                tag_max_length = json.load(json_file)
-
-            with open(join(self.tokenizer_path, 'report_max_length.json')) as json_file:
-                report_max_length = json.load(json_file)
-
         else:
             if not os.path.exists(self.tokenizer_path):
                 os.makedirs(self.tokenizer_path)
-            tag_max_length = 0
-            report_max_length = 0
             tag_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
             report_tokenizer = tf.keras.preprocessing.text.Tokenizer(filters='')
             for batch_idx in range(self.__len__()):
                 tag, _, report = self.__getitem__(batch_idx, preprocess=False)
                 tag = [self.preprocess_sentence(i) for i in tag]
-                for single_tag in tag:
-                    tag_max_length = max(tag_max_length, len(single_tag))
                 report = [self.preprocess_sentence(i) for i in report]
-                for single_report in report:
-                    report_max_length = max(report_max_length, len(single_report))
                 tag_tokenizer.fit_on_texts(tag)
                 report_tokenizer.fit_on_texts(report)
             tag_tokenizer_json = tag_tokenizer.to_json()
@@ -120,12 +139,8 @@ class DataGenerator(keras.utils.Sequence):
             report_tokenizer_json = report_tokenizer.to_json()
             with open(join(self.tokenizer_path, 'report_tokenizer.json'), 'w') as outfile:
                 json.dump(report_tokenizer_json, outfile)
-            with open(join(self.tokenizer_path, 'tag_max_length.json'), 'w') as outfile:
-                json.dump(tag_max_length, outfile)
-            with open(join(self.tokenizer_path, 'report_max_length.json'), 'w') as outfile:
-                json.dump(report_max_length, outfile)
 
-        return tag_tokenizer, report_tokenizer, tag_max_length, report_max_length
+        return tag_tokenizer, report_tokenizer
 
     def obtain_labels(self):
         y = {}
@@ -142,21 +157,27 @@ class DataGenerator(keras.utils.Sequence):
         return y
     def __len__(self):
         'Denotes the number of batches per epoch'
-        return int(np.floor(len(self.list_IDs) / self.batch_size))
-
+        return int(np.floor(len(self.train_IDs) / self.batch_size))
+    def __testlen__(self):
+        'Denotes the number of batches per epoch'
+        return int(np.floor(len(self.test_IDs) / self.batch_size))
     def __getitem__(self, index, preprocess=True):
         'Generate one batch of data'
         # Generate indexes of the batch
         indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
         # Find list of IDs
-        list_IDs_temp = [self.list_IDs[k] for k in indexes]
+        list_IDs_temp = [self.train_IDs[k] for k in indexes]
         # Generate data
         X, image_features, y = self.__data_generation(list_IDs_temp, preprocess)
         return X, image_features, y
-
+    def __gettestitem__(self, index, preprocess=True):
+        'Generate test  data'
+        X, image_features, y = self.__data_generation(self.test_IDs[index*self.batch_size:(index+1)*self.batch_size],
+                                                      preprocess)
+        return X, image_features, y
     def on_epoch_end(self):
         'Updates indexes after each epoch'
-        self.indexes = np.arange(len(self.list_IDs))
+        self.indexes = np.arange(len(self.train_IDs))
         if self.shuffle == True:
             np.random.shuffle(self.indexes)
 
