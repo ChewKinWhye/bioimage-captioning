@@ -155,6 +155,7 @@ class DataGenerator(keras.utils.Sequence):
                     line_count += 1
                     y[row[0]] = row[6]
         return y
+
     def __len__(self):
         'Denotes the number of batches per epoch'
         return int(np.floor(len(self.train_IDs) / self.batch_size))
