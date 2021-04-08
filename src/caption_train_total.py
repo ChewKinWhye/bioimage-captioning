@@ -51,17 +51,7 @@ def train_step(inp, features, targ, enc_hidden):
             lambda t, _l, _di, _dh: t < targ.shape[1],
             _body,
             (1, tf.constant(0, dtype=tf.float32), dec_input, enc_hidden)
-
         )
-        # for t in range(1, targ.shape[1]):
-        #     # passing enc_output to the decoder
-        #     print("Calling decoder...")
-        #     predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output, features)
-
-        #     loss += loss_function(targ[:, t], predictions)
-
-        #     # using teacher forcing
-        #     dec_input = tf.expand_dims(targ[:, t], 1)
 
     batch_loss = (loss / int(targ.shape[1]))
 
@@ -73,8 +63,54 @@ def train_step(inp, features, targ, enc_hidden):
 
     return batch_loss
 
+@tf.function
+def tf_predict(dec_in, dec_hidden, enc_out, val_x_features, end_tensor, start_tensor):
+    same_word = ""
+    same_count = 0
+    word_limit = 200
+    
+    def cond(t, dec_in, dec_hidden, enc_out, val_x_features, predicted_id, result):
+        if tf.equal(predicted_id, end_tensor):
+            return False
+        if t >= word_limit:
+            return False
+        return True
+
+    ta = tf.TensorArray(dtype=tf.int32, size=word_limit, infer_shape=True)
+    # ta.write(0, tf.constant("<start>", dtype=tf.string))
+    def body(t, dec_in, dec_hidden, enc_out, val_x_features, predicted_id, ta):
+        predictions, dec_hidden, attention_weights = decoder(dec_in,
+                                                             dec_hidden,
+                                                             enc_out,
+                                                             val_x_features)
+        # storing the attention weights to plot later on
+        # attention_weights = tf.reshape(attention_weights, (-1, ))
+        # attention_plot[t] = attention_weights.numpy()
+        predicted_id = tf.argmax(predictions[0], output_type=tf.int32) #.numpy()
+        # predicted_id = tf.make_ndarray(tf.argmax(predictions[0])) # tf friendly way
+        # pi = tf.get_static_value(predicted_id)
+        ta.write(t, predicted_id)
+        
+        # the predicted ID is fed back into the model
+        dec_in = tf.expand_dims([predicted_id], 0)
+        return t+1, dec_in, dec_hidden, enc_out, val_x_features, predicted_id, ta
+
+    _t, _di, _dh, _eo, _vx, _pw, result = tf.while_loop(
+        cond,
+        body,
+        (
+            tf.constant(0, dtype=tf.int32), 
+            dec_in, 
+            dec_hidden, 
+            enc_out, 
+            val_x_features, 
+            start_tensor,
+            ta)
+    )
+    return result.stack()
 
 def predict(val_x, val_x_features):
+    start = time.time()
     attention_plot = np.zeros((vocab_report_size, vocab_tag_size))
     input_sentence = []
     for idx in val_x:
@@ -82,7 +118,6 @@ def predict(val_x, val_x_features):
             continue
         input_sentence.append(generator.tag_tokenizer.index_word[idx])
     
-    result = []
     val_x_features = np.expand_dims(val_x_features, axis=0)
     val_x = np.expand_dims(val_x, axis=0)
     hidden = [tf.zeros((1, units))]
@@ -90,28 +125,46 @@ def predict(val_x, val_x_features):
 
     dec_hidden = enc_hidden
     dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']], 0)
+    
+    se = generator.report_tokenizer.word_index['<start>']
+    start_tensor =  tf.constant(se, dtype=tf.int32)
 
-    for t in range(vocab_report_size):
-        predictions, dec_hidden, attention_weights = decoder(dec_input,
-                                                             dec_hidden,
-                                                             enc_out,
-                                                             val_x_features)
+    ee = generator.report_tokenizer.word_index['<end>']
+    end_tensor = tf.constant(ee, dtype=tf.int32)
 
-        # storing the attention weights to plot later on
-        #attention_weights = tf.reshape(attention_weights, (-1, ))
-        #attention_plot[t] = attention_weights.numpy()
+    result = tf_predict(dec_input, dec_hidden, enc_out, val_x_features, end_tensor, start_tensor)
+    indexes = tf.get_static_value(result)
+    word_result = []
+    for pid in indexes:
+        if pid == 0:
+            t = "."
+        else:
+            t = generator.report_tokenizer.index_word[pid]
+        word_result.append(t)
+        
+    # for t in range(vocab_report_size):
+    #     predictions, dec_hidden, attention_weights = decoder(dec_input,
+    #                                                          dec_hidden,
+    #                                                          enc_out,
+    #                                                          val_x_features)
 
-        predicted_id = tf.argmax(predictions[0]).numpy()
+    #     # storing the attention weights to plot later on
+    #     #attention_weights = tf.reshape(attention_weights, (-1, ))
+    #     #attention_plot[t] = attention_weights.numpy()
 
-        result.append(generator.report_tokenizer.index_word[predicted_id])
+    #     predicted_id = tf.argmax(predictions[0]).numpy()
 
-        if generator.report_tokenizer.index_word[predicted_id] == '<end>':
-            return result, input_sentence, attention_plot
+    #     predicted_word = generator.report_tokenizer.index_word[predicted_id]
+    #     result.append(predicted_word)
 
-        # the predicted ID is fed back into the model
-        dec_input = tf.expand_dims([predicted_id], 0)
+    #     if predicted_word == '<end>':
+    #         return result, input_sentence, attention_plot
 
-    return result, input_sentence, None
+    #     # the predicted ID is fed back into the model
+    #     dec_input = tf.expand_dims([predicted_id], 0)
+
+    print("Predict took", time.time() - start)
+    return word_result, input_sentence, None
 
 def plot_attention(attention, sentence, predicted_sentence):
     fig = plt.figure(figsize=(10,10))
@@ -134,6 +187,7 @@ def evaluate():
     for batch_idx in range(generator.__testlen__()):
         tag_features, image_features, y = generator.__gettestitem__(batch_idx)
         for i in range(len(tag_features)):
+            start = time.time()
             prediction, _, _ = predict(tag_features[i], image_features[i])
             expected_output = []
             for idx in y[i]:
@@ -145,8 +199,8 @@ def evaluate():
             bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
             bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
             bleu_4_score += sentence_bleu([expected_output], prediction, weights=(0.25, 0.25, 0.25, 0.25))
-    print(f"Predicted: {prediction}")
-    print(f"Expected: {expected_output}")
+        print(f"Predicted: {prediction}")
+        print(f"Expected: {expected_output}")
     return bleu_1_score/len(tag_features), bleu_2_score/len(tag_features), \
            bleu_3_score/len(tag_features), bleu_4_score/len(tag_features)
 
@@ -241,6 +295,8 @@ checkpoint = tf.train.Checkpoint(optimizer=optimizer,
 print("Training has started! {}".format(time.time() - start))
 batches_per_epoch = generator.__len__()
 print("Batches per epoch {}".format(batches_per_epoch))
+
+PRINT_PER_EPOCH = 2
 for epoch in range(EPOCHS):
     start = time.time()
     enc_hidden = encoder.initialize_hidden_state()
@@ -252,14 +308,22 @@ for epoch in range(EPOCHS):
         total_loss += batch_loss
 
         count += BATCH_SIZE
-        # if batch_idx % (batches_per_epoch//5) == 0:
-        if True:
-            print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch_idx, batch_loss.numpy()))
-            print(evaluate())
+        if batch_idx % (batches_per_epoch//PRINT_PER_EPOCH) == 0 or True:
+            print('Epoch {} Batch {} Batch Loss {:.4f}'.format(epoch + 1, batch_idx, batch_loss.numpy()))
+            result, _, _ = predict(tag_features[0], image_features[0])
+            print("Result {}".format(result))
 
+    # Now training is fast enough, we print once per several epochs
+    
+    
     # saving (checkpoint) the model every 2 epochs
     if (epoch + 1) % 2 == 0:
         checkpoint.save(file_prefix=checkpoint_prefix)
+    
+    if epoch > 10 and (epoch + 1) % 10 or True:
+        print(evaluate())
+
+
     generator.on_epoch_end()
     print("Counted: %s" % count)
     print('Epoch {} Total Loss {:.4f}'.format(epoch + 1, total_loss))
