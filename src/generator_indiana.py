@@ -28,12 +28,15 @@ class DataGenerator(keras.utils.Sequence):
         self.tokenizer_path = join(dirname(dirname(abspath(__file__))), "outs", "tokenizer")
         self.image_path = join(self.base_path, "images", "images_normalized")
         self.csv_path = join(self.base_path, "indiana_reports.csv")
+        self.labels, rf = self.obtain_labels()
         for file in os.listdir(self.image_path):
-            self.list_IDs.append(file)
-        self.labels = self.obtain_labels()
+            key = file.split("_")[0]
+            if key in rf:
+                self.list_IDs.append(file)
         self.on_epoch_end()
         self.tag_tokenizer, self.report_tokenizer, self.tag_max_length, self.report_max_length = self.obtain_tokenizers()
         self.on_epoch_end()
+        
 
     def unicode_to_ascii(self, s):
         return ''.join(c for c in unicodedata.normalize('NFD', s)
@@ -129,6 +132,7 @@ class DataGenerator(keras.utils.Sequence):
 
     def obtain_labels(self):
         y = {}
+        rf = set()
         with open(join(self.csv_path)) as csv_file:
             line_count = 0
             csv_reader = csv.reader(csv_file, delimiter=",")
@@ -138,8 +142,9 @@ class DataGenerator(keras.utils.Sequence):
                     continue
                 else:
                     line_count += 1
+                    rf.add(row[0])
                     y[row[0]] = row[6]
-        return y
+        return y, rf
     def __len__(self):
         'Denotes the number of batches per epoch'
         return int(np.floor(len(self.list_IDs) / self.batch_size))
@@ -186,3 +191,14 @@ class DataGenerator(keras.utils.Sequence):
         #print(f"Tags shape: {tags.shape}")
         #print(f"Train Y shape: {y.shape}")
         return tags, image_features, y
+
+if __name__ == "__main__":
+    from configparser import ConfigParser
+    config_file = "./config.ini"
+    cp = ConfigParser()
+    cp.read(config_file)
+    class_names = cp["DEFAULT"].get("class_names").split(",")
+    dg = DataGenerator((3,256,256), "model", class_names)
+    words = ["<start>", "clear", "heart", "lungs", "mild"]
+    for w in words:
+        print(dg.report_tokenizer.word_index[w])
