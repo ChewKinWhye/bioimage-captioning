@@ -85,6 +85,9 @@ class Decoder(tf.keras.Model):
         x = self.fc(output)
 
         return x, state, attention_weights
+    
+    def initialize_hidden_state(self):
+        return tf.zeros((self.batch_sz, self.dec_units))
 
 class Sentence_Decoder(tf.keras.Model):
     def __init__(self, topic_dim, dec_units, batch_sz, stop_dim):
