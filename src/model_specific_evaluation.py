@@ -194,9 +194,10 @@ def location_fmeasure(label, predict):
     for word_index in range(len(label)-1):
         if label[word_index] in location_words:
             label_locations.append(label[word_index] + label[word_index+1])
+
     for word_index in range(len(predict)-1):
-        if label[word_index] in location_words:
-            predict_locations.append(label[word_index] + label[word_index+1])
+        if predict[word_index] in location_words:
+            predict_locations.append(predict[word_index] + predict[word_index+1])
 
     tp, fp = 0, 0
     for location in predict_locations:
@@ -206,6 +207,8 @@ def location_fmeasure(label, predict):
         else:
             fp += 1
     fn = len(label_locations)
+    if tp + 0.5 * (fp + fn) == 0:
+        return 99999
     return tp / (tp + 0.5 * (fp + fn))
 
 
@@ -230,6 +233,8 @@ def keyword_fmeasure(label, predict):
             fp += 1
         else:
             print("ERROR")
+    if tp+0.5*(fp+fn) == 0:
+        return 99999
     return tp/(tp+0.5*(fp+fn))
 
 
@@ -318,6 +323,44 @@ def predict(val_x, val_x_features):
     print("Predict took", time.time() - start)
     return word_result, input_sentence, None
 
+def old_predict(val_x, val_x_features):
+    attention_plot = np.zeros((vocab_report_size, vocab_tag_size))
+    input_sentence = ""
+    for idx in val_x:
+        if idx == 0:
+            continue
+        input_sentence += generator.tag_tokenizer.index_word[idx] + ' '
+    
+    result = ''
+    val_x_features = np.expand_dims(val_x_features, axis=0)
+    val_x = np.expand_dims(val_x, axis=0)
+    hidden = [tf.zeros((1, units))]
+    enc_out, enc_hidden = encoder(val_x, hidden)
+
+    dec_hidden = enc_hidden
+    dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']], 0)
+
+    for t in range(vocab_report_size):
+        predictions, dec_hidden, attention_weights = decoder(dec_input,
+                                                             dec_hidden,
+                                                             enc_out,
+                                                             val_x_features)
+
+        # storing the attention weights to plot later on
+        #attention_weights = tf.reshape(attention_weights, (-1, ))
+        #attention_plot[t] = attention_weights.numpy()
+
+        predicted_id = tf.argmax(predictions[0]).numpy()
+
+        result += generator.report_tokenizer.index_word[predicted_id] + ' '
+
+        if generator.report_tokenizer.index_word[predicted_id] == '<end>':
+            return result, input_sentence, attention_plot
+
+        # the predicted ID is fed back into the model
+        dec_input = tf.expand_dims([predicted_id], 0)
+
+    return result, input_sentence, None
 
 if __name__ == "__main__":
     start = time.time()
@@ -335,14 +378,13 @@ if __name__ == "__main__":
     output_weights_name = cp["TRAIN"].get("output_weights_name")
     BATCH_SIZE = 10 # > 16 will cause training to crash on David's local machine
     embedding_dim = 128
-    units = 1024
+    units = 512
+    LEARN_RATE = 0.0001
     FREEZE_VISION_MODEL = True # Freeze the model
-    EPOCHS = 20
-    LEARN_RATE = 0.001
 
     # Load CNN Model
     vision_model_path = join(dirname(dirname(abspath(__file__))), "outs", "outputindiana", "best_weights.h5")
-    model = get_model(class_names, vision_model_path)
+    model =  get_model(class_names, vision_model_path)
     print('Time taken to inialize Vision Model {} sec\n'.format(time.time() - start))
 
     # Load Data Generator
@@ -358,11 +400,14 @@ if __name__ == "__main__":
     decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
     optimizer = tf.keras.optimizers.Adam(learning_rate = LEARN_RATE)
     loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
-    checkpoint_dir = 'Checkpoints'
+    checkpoint_dir = 'testing'
     checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
     checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                      encoder=encoder,
                                      decoder=decoder)
+    print("ENCODER", encoder.enc_units)
+    print("DECODER", decoder.dec_units)
+    # print(decoder.summary())
     status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
     status.assert_existing_objects_matched()
     print('Time taken to Load Trained Encoder/decoder {} sec\n'.format(time.time() - start))
@@ -371,25 +416,26 @@ if __name__ == "__main__":
 
     for batch_idx in range(generator.__testlen__()):
         tag_features, image_features, y = generator.__gettestitem__(batch_idx)
-
+        print("input shapes", tag_features.shape, image_features.shape)
         for i in range(len(tag_features)):
             start = time.time()
-            prediction, _, _ = predict(tag_features[i], image_features[i])
+            prediction, _, _ = old_predict(tag_features[i], image_features[i])
             expected_output = []
             for idx in y[i]:
                 if idx == 0:
                     continue
                 else:
                     expected_output.append(generator.report_tokenizer.index_word[idx])
-
+            print("Prediction:", prediction)
+            print("Expected:", expected_output)
             # Calculate Metrics
-            location_f_measure += location_fmeasure(expected_output, prediction)
-            keyword_f_measure += keyword_fmeasure(expected_output, prediction)
-            severity_f_measure += severity_fmeasure(expected_output, prediction)
-            bleu_1_score += sentence_bleu([expected_output], prediction, weights=(1, 0, 0, 0))
-            bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
-            bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
-            bleu_4_score += sentence_bleu([expected_output], prediction, weights=(0.25, 0.25, 0.25, 0.25))
+            # location_f_measure += location_fmeasure(expected_output, prediction)
+            # keyword_f_measure += keyword_fmeasure(expected_output, prediction)
+            # severity_f_measure += severity_fmeasure(expected_output, prediction)
+            # bleu_1_score += sentence_bleu([expected_output], prediction, weights=(1, 0, 0, 0))
+            # bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
+            # bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
+            # bleu_4_score += sentence_bleu([expected_output], prediction, weights=(0.25, 0.25, 0.25, 0.25))
 
     num_examples = generator.__testlen__() * generator.batch_size
 
