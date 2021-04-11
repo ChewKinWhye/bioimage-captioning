@@ -28,9 +28,8 @@ def loss_function(real, pred):
 def train_step(inp, features, targ, enc_hidden):
     def _body(t, loss, dec_input, dec_hidden):
         predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output, features)
-
+        
         loss += loss_function(targ[:, t], predictions)
-
         # using teacher forcing
         dec_input = tf.expand_dims(targ[:, t], 1)
         return t+1, loss, dec_input, dec_hidden
@@ -44,8 +43,6 @@ def train_step(inp, features, targ, enc_hidden):
 
         dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']] * BATCH_SIZE, 1)
 
-        # Teacher forcing - feeding the target as the next input
-        
         _t, loss, _di, _dh = tf.while_loop(
             lambda t, _l, _di, _dh: t < targ.shape[1],
             _body,

@@ -8,7 +8,7 @@ from generator_indiana import DataGenerator
 import time
 from configparser import ConfigParser
 from vision_model import get_model
-from caption_models import Decoder
+from caption_models import ImageDecoder
 from os.path import dirname, abspath, join
 import os
 import sys
@@ -27,26 +27,25 @@ def loss_function(real, pred):
 
 @tf.function
 def train_step(decoder, img_features, targ):
-    def _body(t, loss, dec_input, dec_hidden):
-        predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, img_features)
+    WORD_LIMIT = min(targ.shape[1], 100)
+    def _body(t, loss, dec_input):
+        predictions, dec_hidden = decoder(dec_input, img_features)
 
         loss += loss_function(targ[:, t], predictions)
 
         # using teacher forcing
         dec_input = tf.expand_dims(targ[:, t], 1)
-        return t+1, loss, dec_input, dec_hidden
+        return t+1, loss, dec_input
 
     loss = 0
     with tf.GradientTape() as tape:
-        # dec_hidden = enc_hidden
         dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']] * BATCH_SIZE, 1)
-        dec_hidden = decoder.initialize_hidden_state()
         # Teacher forcing - feeding the target as the next input
         
-        _t, loss, _di, _dh = tf.while_loop(
-            lambda t, _l, _di, _dh: t < targ.shape[1],
+        _t, loss, _di = tf.while_loop(
+            lambda t, _l, _d_in: t < WORD_LIMIT,
             _body,
-            (1, tf.constant(0, dtype=tf.float32), dec_input, dec_hidden)
+            (1, tf.constant(0, dtype=tf.float32), dec_input)
         )
         # for t in range(1, targ.shape[1]):
         #     # passing enc_output to the decoder
@@ -69,28 +68,14 @@ def train_step(decoder, img_features, targ):
     return batch_loss
 
 
-def evaluate(val_x, val_x_features):
-    attention_plot = np.zeros((vocab_report_size, vocab_tag_size))
-    input_sentence = ""
-    for idx in val_x:
-        if idx == 0:
-            continue
-        input_sentence += generator.tag_tokenizer.index_word[idx] + ' '
-    
+def evaluate(img_x):
     result = ''
-    val_x_features = np.expand_dims(val_x_features, axis=0)
-    val_x = np.expand_dims(val_x, axis=0)
-    hidden = [tf.zeros((1, units))]
-    enc_out, enc_hidden = encoder(val_x, hidden)
-
-    dec_hidden = enc_hidden
+    img_x_in = np.expand_dims(img_x, axis=0)
+   
     dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']], 0)
 
-    for t in range(vocab_report_size):
-        predictions, dec_hidden, attention_weights = decoder(dec_input,
-                                                             dec_hidden,
-                                                             enc_out,
-                                                             val_x_features)
+    for t in range(100):
+        predictions, dec_hidden = decoder(dec_input, img_x_in)
 
         # storing the attention weights to plot later on
         #attention_weights = tf.reshape(attention_weights, (-1, ))
@@ -101,12 +86,12 @@ def evaluate(val_x, val_x_features):
         result += generator.report_tokenizer.index_word[predicted_id] + ' '
 
         if generator.report_tokenizer.index_word[predicted_id] == '<end>':
-            return result, input_sentence, attention_plot
+            return result, input_sentence
 
         # the predicted ID is fed back into the model
         dec_input = tf.expand_dims([predicted_id], 0)
 
-    return result, input_sentence, None
+    return result
 
 def plot_attention(attention, sentence, predicted_sentence):
     fig = plt.figure(figsize=(10,10))
@@ -192,12 +177,12 @@ print('Time taken to inialize Vision Model {} sec\n'.format(time.time() - start)
 generator = DataGenerator(model.layers[0].input_shape[0], model, class_names, batch_size=BATCH_SIZE)
 print('Time taken to inialize Generator {} sec\n'.format(time.time() - start))
 
-vocab_tag_size = len(generator.tag_tokenizer.word_index)+1
+# vocab_tag_size = len(generator.tag_tokenizer.word_index)+1
 vocab_report_size = len(generator.report_tokenizer.word_index)+1
 # vocab_report_size = generator.report_max_length + 1
 
 print('Time taken to inialize Classes {} sec\n'.format(time.time() - start))
-decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
+decoder = ImageDecoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
 
 print('Time taken to inialize Encoder/decoder {} sec\n'.format(time.time() - start))
 
@@ -220,13 +205,13 @@ for epoch in range(EPOCHS):
     count = 0
     for batch_idx in range(generator.__len__()):
         _tag_features, image_features, y = generator.__getitem__(batch_idx)
-        print(image_features.shape, y.shape)
+        # print(image_features.shape, y.shape)
         batch_loss = train_step(decoder, image_features, y)
         total_loss += batch_loss
         count += BATCH_SIZE
         if batch_idx % (batches_per_epoch//PRINT_PER_EPOCH) == 0:
             print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1, batch_idx, batch_loss.numpy()))
-            result, input_sentence, attention_plot = evaluate(tag_features[0], image_features[0])
+            result = evaluate(image_features[0])
             print(f"Output: {result}")
   # saving (checkpoint) the model every 2 epochs
     if (epoch + 1) % 2 == 0:

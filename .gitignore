@@ -3,3 +3,15 @@ data
 .idea/
 src/__pycache__/
 src/training_checkpoints
+
+src/trained_checkpoints/1024-epoch42.index
+
+src/trained_checkpoints/512-epoch40.data-00000-of-00001
+
+src/trained_checkpoints/512-epoch40.index
+
+src/trained_checkpoints/full_512-epoch12.data-00000-of-00001
+
+src/trained_checkpoints/full_512-epoch12.index
+
+src/trained_checkpoints/
