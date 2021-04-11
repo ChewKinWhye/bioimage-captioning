@@ -412,8 +412,6 @@ if __name__ == "__main__":
     checkpoint = tf.train.Checkpoint(optimizer=optimizer,
                                      encoder=encoder,
                                      decoder=decoder)
-    print("ENCODER", encoder.enc_units)
-    print("DECODER", decoder.dec_units)
     # print(decoder.summary())
     status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
     status.assert_existing_objects_matched()
@@ -443,16 +441,22 @@ if __name__ == "__main__":
             bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
             bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
             bleu_4_score += sentence_bleu([expected_output], prediction, weights=(0.25, 0.25, 0.25, 0.25))
-        
-        if batch_idx > 10:
-            break
+        if batch_idx % 10 == 0:
+            print("Batch", batch_idx, "Examples seen:", batch_idx*BATCH_SIZE)
 
     num_examples = generator.__testlen__() * generator.batch_size
 
-    print(location_f_measure/num_examples)
-    print(keyword_f_measure / num_examples)
-    print(severity_f_measure / num_examples)
-    print(bleu_1_score / num_examples)
-    print(bleu_2_score / num_examples)
-    print(bleu_3_score / num_examples)
-    print(bleu_4_score / num_examples)
+    results = []
+    results.append(("Location f measure", location_f_measure/num_examples))
+    results.append(("Keyword f measure", keyword_f_measure / num_examples))
+    results.append(("Severity f measure", severity_f_measure / num_examples))
+    results.append(("BLEU 1", bleu_1_score / num_examples))
+    results.append(("2", bleu_2_score / num_examples))
+    results.append(("3", bleu_3_score / num_examples))
+    results.append(("4", bleu_4_score / num_examples))
+    result_filename = "RESULTS"
+    with open(result_filename, "w+") as f:
+        for r in results:
+            f.write(r[0] + ": " + str(r[1]) + "\n")
+    print("DONE, wrote results to %s" % result_filename)
+        
