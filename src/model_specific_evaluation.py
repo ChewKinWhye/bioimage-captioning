@@ -9,6 +9,10 @@ from caption_models import Encoder, Decoder
 from os.path import dirname, abspath, join
 import os
 from nltk.translate.bleu_score import sentence_bleu
+from rouge_score import rouge_scorer
+from nltk.translate.meteor_score import meteor_score as nltk_meteor_score
+from sklearn.metrics.pairwise import cosine_similarity
+from gensim.models import Doc2Vec
 
 
 class_names = ['normal',
@@ -164,6 +168,14 @@ severity_words = ["normal",
                   "low",
                   "concern",
                   "advanced"]
+
+
+def paragraph_embedding_cosine_similarity(label, predict, doc_2_vec_model):
+    # Load Model
+    label_embedding = doc_2_vec_model.infer_vector(label)
+    predict_embedding = doc_2_vec_model.infer_vector(predict)
+    return cosine_similarity(label_embedding, predict_embedding)
+
 
 def severity_fmeasure(label, predict):
     label_severity = [0] * len(severity_words)
@@ -369,6 +381,8 @@ def old_predict(val_x, val_x_features):
 
     return result, input_sentence, None
 
+
+
 if __name__ == "__main__":
     start = time.time()
     print("Starting...")
@@ -416,8 +430,13 @@ if __name__ == "__main__":
     status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
     status.assert_existing_objects_matched()
     print('Time taken to Load Trained Encoder/decoder {} sec\n'.format(time.time() - start))
+    scorer = rouge_scorer.RougeScorer(['rouge1', 'rougeL'], use_stemmer=True)
     location_f_measure, keyword_f_measure, severity_f_measure = 0, 0, 0
     bleu_1_score, bleu_2_score, bleu_3_score, bleu_4_score = 0, 0, 0, 0
+    rouge_score = 0
+    meteor_score = 0
+    paragraph_embedding_cosine_score = 0
+    doc_2_vec_model = Doc2Vec.load(join("enwiki_dbow", "doc2vec.bin"))
 
     for batch_idx in range(generator.__testlen__()):
         tag_features, image_features, y = generator.__gettestitem__(batch_idx)
@@ -441,6 +460,10 @@ if __name__ == "__main__":
             bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
             bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
             bleu_4_score += sentence_bleu([expected_output], prediction, weights=(0.25, 0.25, 0.25, 0.25))
+            rouge_score += scorer.score(expected_output, prediction)
+            meteor_score += nltk_meteor_score([expected_output], prediction)
+            paragraph_embedding_cosine_score += paragraph_embedding_cosine_similarity(expected_output, prediction,
+                                                                                      doc_2_vec_model)
         if batch_idx % 10 == 0:
             print("Batch", batch_idx, "Examples seen:", batch_idx*BATCH_SIZE)
 
@@ -450,10 +473,13 @@ if __name__ == "__main__":
     results.append(("Location f measure", location_f_measure/num_examples))
     results.append(("Keyword f measure", keyword_f_measure / num_examples))
     results.append(("Severity f measure", severity_f_measure / num_examples))
+    results.append(("ROGUE SCORE", rouge_score / num_examples))
+    results.append(("METEOR SCORE", meteor_score / num_examples))
     results.append(("BLEU 1", bleu_1_score / num_examples))
     results.append(("2", bleu_2_score / num_examples))
     results.append(("3", bleu_3_score / num_examples))
     results.append(("4", bleu_4_score / num_examples))
+    results.append(("Paragraph Embedding Cosine Similarity", paragraph_embedding_cosine_score / num_examples))
     result_filename = "RESULTS"
     with open(result_filename, "w+") as f:
         for r in results:
