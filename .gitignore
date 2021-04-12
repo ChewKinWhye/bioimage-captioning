@@ -5,3 +5,8 @@ src/__pycache__/
 src/training_checkpoints
 
 src/trained_checkpoints/
+
+
+src/e2e_testing/image_feat_only.data-00000-of-00001
+
+src/e2e_testing/image_feat_only.index

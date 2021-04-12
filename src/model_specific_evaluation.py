@@ -6,13 +6,17 @@ import time
 from configparser import ConfigParser
 from vision_model import get_model
 from caption_models import Encoder, Decoder
+from e2e_models import ImageDecoder
 from os.path import dirname, abspath, join
 import os
 from nltk.translate.bleu_score import sentence_bleu
 from rouge_score import rouge_scorer
 from nltk.translate.meteor_score import meteor_score as nltk_meteor_score
 from sklearn.metrics.pairwise import cosine_similarity
-from gensim.models import Doc2Vec
+
+use_gensim = False
+if use_gensim:
+    from gensim.models import Doc2Vec
 
 
 class_names = ['normal',
@@ -176,6 +180,26 @@ def paragraph_embedding_cosine_similarity(label, predict, doc_2_vec_model):
     predict_embedding = doc_2_vec_model.infer_vector(predict)
     return cosine_similarity(label_embedding, predict_embedding)
 
+def scores(tp, tn, fp, fn):
+    if tp + 0.5 * (fp + fn) == 0:
+        # All true negatives align
+        # # print("SM division by 0")
+        # print("Label", label)
+        # print("Predict", predict[:30])
+        acc = 1
+    else:
+        acc = tp/(tp+0.5*(fp+fn))
+    
+    if tn + 0.5 * (fp + fn) == 0:
+        # All true negatives align
+        # # print("SM division by 0")
+        # print("Label", label)
+        # print("Predict", predict[:30])
+        recall = 1
+    else:
+        recall = tn/(tn+0.5*(fp+fn))
+    return acc, recall
+    
 
 def severity_fmeasure(label, predict):
     label_severity = [0] * len(severity_words)
@@ -198,10 +222,8 @@ def severity_fmeasure(label, predict):
             fp += 1
         else:
             print("SM ERROR")
-    if tp + 0.5 * (fp + fn) == 0:
-        # Division by 0 but tp is 0 anyways lol
-        return 0
-    return tp / (tp + 0.5 * (fp + fn))
+    
+    return scores(tp, tn, fp, fn)
 
 def location_fmeasure(label, predict):
     label_locations = []
@@ -224,9 +246,8 @@ def location_fmeasure(label, predict):
     fn = len(label_locations)
 
     if tp + 0.5 * (fp + fn) == 0:
-        # Division by 0 but tp is 0 anyways lol
-        return 0
-    return tp / (tp + 0.5 * (fp + fn))
+        return 1
+    return tp/(tp + 0.5 * (fp + fn))
 
 
 def keyword_fmeasure(label, predict):
@@ -250,97 +271,33 @@ def keyword_fmeasure(label, predict):
             fp += 1
         else:
             print("KW ERROR")
-    if tp+0.5*(fp+fn) == 0:
-        # print("KW: Division by 0!")
-        # Division by 0 but tp is 0 anyways lol
-        return 0
-    return tp/(tp+0.5*(fp+fn))
+    return scores(tp, tn, fp, fn)
 
 
-# @tf.function
-# def tf_predict(dec_in, dec_hidden, enc_out, val_x_features, end_tensor, start_tensor):
-#     same_word = ""
-#     same_count = 0
-#     word_limit = 200
+def e2e_predict(val_x_features):
+    result = []
+    img_x_in = np.expand_dims(val_x_features, axis=0)
+   
+    dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']], 0)
 
-#     def cond(t, dec_in, dec_hidden, enc_out, val_x_features, predicted_id, result):
-#         if tf.equal(predicted_id, end_tensor):
-#             return False
-#         if t >= word_limit:
-#             return False
-#         return True
+    for t in range(vocab_report_size):
+        predictions, dec_hidden = decoder(dec_input, img_x_in)
 
-#     ta = tf.TensorArray(dtype=tf.int32, size=word_limit, infer_shape=True)
+        # storing the attention weights to plot later on
+        #attention_weights = tf.reshape(attention_weights, (-1, ))
+        #attention_plot[t] = attention_weights.numpy()
 
-#     # ta.write(0, tf.constant("<start>", dtype=tf.string))
-#     def body(t, dec_in, dec_hidden, enc_out, val_x_features, predicted_id, ta):
-#         predictions, dec_hidden, attention_weights = decoder(dec_in,
-#                                                              dec_hidden,
-#                                                              enc_out,
-#                                                              val_x_features)
-#         # storing the attention weights to plot later on
-#         # attention_weights = tf.reshape(attention_weights, (-1, ))
-#         # attention_plot[t] = attention_weights.numpy()
-#         predicted_id = tf.argmax(predictions[0], output_type=tf.int32)  # .numpy()
-#         # predicted_id = tf.make_ndarray(tf.argmax(predictions[0])) # tf friendly way
-#         # pi = tf.get_static_value(predicted_id)
-#         ta.write(t, predicted_id)
+        predicted_id = tf.argmax(predictions[0]).numpy()
 
-#         # the predicted ID is fed back into the model
-#         dec_in = tf.expand_dims([predicted_id], 0)
-#         return t + 1, dec_in, dec_hidden, enc_out, val_x_features, predicted_id, ta
+        result.append(generator.report_tokenizer.index_word[predicted_id])
 
-#     _t, _di, _dh, _eo, _vx, _pw, result = tf.while_loop(
-#         cond,
-#         body,
-#         (
-#             tf.constant(0, dtype=tf.int32),
-#             dec_in,
-#             dec_hidden,
-#             enc_out,
-#             val_x_features,
-#             start_tensor,
-#             ta)
-#     )
-#     return result.stack()
+        if generator.report_tokenizer.index_word[predicted_id] == '<end>':
+            return result
 
+        # the predicted ID is fed back into the model
+        dec_input = tf.expand_dims([predicted_id], 0)
 
-# # def predict(val_x, val_x_features):
-#     start = time.time()
-#     attention_plot = np.zeros((vocab_report_size, vocab_tag_size))
-#     input_sentence = []
-#     for idx in val_x:
-#         if idx == 0:
-#             continue
-#         input_sentence.append(generator.tag_tokenizer.index_word[idx])
-
-#     val_x_features = np.expand_dims(val_x_features, axis=0)
-#     val_x = np.expand_dims(val_x, axis=0)
-#     hidden = [tf.zeros((1, units))]
-#     enc_out, enc_hidden = encoder(val_x, hidden)
-#     print(enc_hidden.shape)
-
-#     dec_hidden = enc_hidden
-#     dec_input = tf.expand_dims([generator.report_tokenizer.word_index['<start>']], 0)
-
-#     se = generator.report_tokenizer.word_index['<start>']
-#     start_tensor = tf.constant(se, dtype=tf.int32)
-
-#     ee = generator.report_tokenizer.word_index['<end>']
-#     end_tensor = tf.constant(ee, dtype=tf.int32)
-
-#     result = tf_predict(dec_input, dec_hidden, enc_out, val_x_features, end_tensor, start_tensor)
-#     indexes = tf.get_static_value(result)
-#     word_result = []
-#     for pid in indexes:
-#         if pid == 0:
-#             t = "."
-#         else:
-#             t = generator.report_tokenizer.index_word[pid]
-#         word_result.append(t)
-
-#     print("Predict took", time.time() - start)
-#     return word_result, input_sentence, None
+    return result
 
 def old_predict(val_x, val_x_features):
     attention_plot = np.zeros((vocab_report_size, vocab_tag_size))
@@ -381,7 +338,11 @@ def old_predict(val_x, val_x_features):
 
     return result, input_sentence, None
 
-
+def list2string(l):
+    s = ""
+    for word in l:
+        s = s + " " + word
+    return s[1:] # Take out first space
 
 if __name__ == "__main__":
     start = time.time()
@@ -398,8 +359,7 @@ if __name__ == "__main__":
     output_dir = cp["DEFAULT"].get("output_dir")
     output_weights_name = cp["TRAIN"].get("output_weights_name")
     BATCH_SIZE = 10 # > 16 will cause training to crash on David's local machine
-    embedding_dim = 128
-    units = 512
+   
     LEARN_RATE = 0.0001
     FREEZE_VISION_MODEL = True # Freeze the model
 
@@ -416,71 +376,122 @@ if __name__ == "__main__":
     print(f"Number of tags: {vocab_tag_size}\n Number of words: {vocab_report_size}")
     print('Time taken to inialize Classes {} sec\n'.format(time.time() - start))
 
-    # Load Caption Model
-    encoder = Encoder(vocab_tag_size, embedding_dim, units, BATCH_SIZE)
-    decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
-    optimizer = tf.keras.optimizers.Adam(learning_rate = LEARN_RATE)
-    loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
-    checkpoint_dir = 'testing'
-    checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
-    checkpoint = tf.train.Checkpoint(optimizer=optimizer,
-                                     encoder=encoder,
-                                     decoder=decoder)
-    # print(decoder.summary())
-    status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
-    status.assert_existing_objects_matched()
+    END_TO_END = True
+    if not END_TO_END:
+        # Load Caption Model
+        embedding_dim = 128
+        units = 512
+        encoder = Encoder(vocab_tag_size, embedding_dim, units, BATCH_SIZE)
+        decoder = Decoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
+        optimizer = tf.keras.optimizers.Adam(learning_rate = LEARN_RATE)
+        loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
+        checkpoint_dir = 'testing'
+        checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
+        checkpoint = tf.train.Checkpoint(optimizer=optimizer,
+                                        encoder=encoder,
+                                        decoder=decoder)
+
+        status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
+        status.assert_existing_objects_matched()    
+        print("Using Combined model")
+
+    else:
+        # Load End to End Model
+        embedding_dim = 256
+        units = 1024
+        decoder = ImageDecoder(vocab_report_size, embedding_dim, units, BATCH_SIZE)
+        optimizer = tf.keras.optimizers.Adam(learning_rate = LEARN_RATE)
+        loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
+        checkpoint_dir = 'e2e_testing'
+        checkpoint = tf.train.Checkpoint(optimizer=optimizer,
+                                        decoder=decoder)
+
+        status = checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
+        status.assert_existing_objects_matched()
+        print("Using End 2 End (image features only) model")
+
+
     print('Time taken to Load Trained Encoder/decoder {} sec\n'.format(time.time() - start))
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rougeL'], use_stemmer=True)
-    location_f_measure, keyword_f_measure, severity_f_measure = 0, 0, 0
+    loc_a, loc_r, kw_a, kw_r, s_a, s_r = 0, 0, 0, 0, 0, 0
     bleu_1_score, bleu_2_score, bleu_3_score, bleu_4_score = 0, 0, 0, 0
-    rouge_score = 0
+    rouge_precision = 0
+    rouge_recall = 0
+    rouge_fmeasure = 0
     meteor_score = 0
     paragraph_embedding_cosine_score = 0
-    doc_2_vec_model = Doc2Vec.load(join("enwiki_dbow", "doc2vec.bin"))
+    if use_gensim: doc_2_vec_model = Doc2Vec.load(join("enwiki_dbow", "doc2vec.bin"))
 
     for batch_idx in range(generator.__testlen__()):
         tag_features, image_features, y = generator.__gettestitem__(batch_idx)
-        print("input shapes", tag_features.shape, image_features.shape)
+        # print("input shapes", tag_features.shape, image_features.shape)
         for i in range(len(tag_features)):
             start = time.time()
-            prediction, _, _ = old_predict(tag_features[i], image_features[i])
+            if END_TO_END:
+                prediction = e2e_predict(image_features[i])
+            else:
+                prediction, _, _ = old_predict(tag_features[i], image_features[i])
             expected_output = []
             for idx in y[i]:
                 if idx == 0:
                     continue
                 else:
                     expected_output.append(generator.report_tokenizer.index_word[idx])
-            # print("Prediction:", prediction)
-            # print("Expected:", expected_output)
+            
+            # Ignore <start>. But don't ignore <end>
+            expected_output = expected_output[1:]
+
+            ps = list2string(prediction)
+            es = list2string(expected_output) 
+            # print("Pred str", ps[:150])
+            # print("Ex str", es)
+            
             # Calculate Metrics
-            location_f_measure += location_fmeasure(expected_output, prediction)
-            keyword_f_measure += keyword_fmeasure(expected_output, prediction)
-            severity_f_measure += severity_fmeasure(expected_output, prediction)
+            loc_a = location_fmeasure(expected_output, prediction)
+            kwfm = keyword_fmeasure(expected_output, prediction)
+            kw_a += kwfm[0]
+            kw_r += kwfm[1]
+            sfm = severity_fmeasure(expected_output, prediction)
+            s_a += sfm[0]
+            s_r += sfm[1]
+
             bleu_1_score += sentence_bleu([expected_output], prediction, weights=(1, 0, 0, 0))
             bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
             bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
             bleu_4_score += sentence_bleu([expected_output], prediction, weights=(0.25, 0.25, 0.25, 0.25))
-            rouge_score += scorer.score(expected_output, prediction)
-            meteor_score += nltk_meteor_score([expected_output], prediction)
-            paragraph_embedding_cosine_score += paragraph_embedding_cosine_similarity(expected_output, prediction,
+            rogue_out = scorer.score(es, ps)['rouge1']
+            rouge_precision += rogue_out.precision
+            rouge_recall += rogue_out.recall
+            rouge_fmeasure += rogue_out.fmeasure
+            meteor_score += nltk_meteor_score(es, ps)
+            if use_gensim: 
+                paragraph_embedding_cosine_score += paragraph_embedding_cosine_similarity(expected_output, prediction,
                                                                                       doc_2_vec_model)
-        if batch_idx % 10 == 0:
+        if batch_idx > 9 and batch_idx % 10 == 0:
             print("Batch", batch_idx, "Examples seen:", batch_idx*BATCH_SIZE)
-
+            
     num_examples = generator.__testlen__() * generator.batch_size
 
     results = []
-    results.append(("Location f measure", location_f_measure/num_examples))
-    results.append(("Keyword f measure", keyword_f_measure / num_examples))
-    results.append(("Severity f measure", severity_f_measure / num_examples))
-    results.append(("ROGUE SCORE", rouge_score / num_examples))
+    results.append(("Number of examples:", num_examples))
+    results.append(("Location f measure accuracy", loc_a/num_examples))
+    # results.append(("Location f measure recall", loc_r/num_examples))
+    results.append(("Keyword f measure accuracy", kw_a / num_examples))
+    results.append(("Keyword f measure recall", kw_r / num_examples))
+    results.append(("Severity f measure accuracy", s_a / num_examples))
+    results.append(("Severity f measure recall", s_r / num_examples))
+    results.append(("ROGUE precision", rouge_precision / num_examples))
+    results.append(("ROGUE recall", rouge_recall / num_examples))
+    results.append(("ROGUE f measure", rouge_fmeasure / num_examples))
     results.append(("METEOR SCORE", meteor_score / num_examples))
     results.append(("BLEU 1", bleu_1_score / num_examples))
     results.append(("2", bleu_2_score / num_examples))
     results.append(("3", bleu_3_score / num_examples))
     results.append(("4", bleu_4_score / num_examples))
-    results.append(("Paragraph Embedding Cosine Similarity", paragraph_embedding_cosine_score / num_examples))
-    result_filename = "RESULTS"
+    if use_gensim: results.append(("Paragraph Embedding Cosine Similarity", paragraph_embedding_cosine_score / num_examples))
+    result_filename = "Combined Model Results.txt"
+    if END_TO_END:
+        result_filename = "End2End Model Results.txt"
     with open(result_filename, "w+") as f:
         for r in results:
             f.write(r[0] + ": " + str(r[1]) + "\n")
