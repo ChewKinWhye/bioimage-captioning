@@ -13,6 +13,13 @@ from nltk.translate.bleu_score import sentence_bleu
 from rouge_score import rouge_scorer
 from nltk.translate.meteor_score import meteor_score as nltk_meteor_score
 from sklearn.metrics.pairwise import cosine_similarity
+from nltk import tokenize
+from sentence_transformers import SentenceTransformer
+sbert_model = SentenceTransformer('bert-base-nli-mean-tokens')
+from sklearn.metrics.pairwise import cosine_similarity
+import nltk
+nltk.download('punkt')
+
 
 use_gensim = False
 if use_gensim:
@@ -174,6 +181,39 @@ severity_words = ["normal",
                   "advanced"]
 
 
+def sentence_embedding_cosine_similarity(label, predict):
+    total_cosine_similarity = 0
+    total_counts = 0
+
+    # Split by sentences
+    label_sentences = tokenize.sent_tokenize(label)
+    predict_sentences = tokenize.sent_tokenize(predict)
+
+    # Use pretrained model to obtain encoding
+    label_sentences_embeddings = sbert_model.encode(label_sentences)
+    predict_sentences_embeddings = sbert_model.encode(predict_sentences)
+
+    # For each sentence embedding in label
+    for label_embedding in label_sentences_embeddings:
+        # Find the closest embedding in the prediction
+        max_cosine_score = 0
+        for predict_embedding in predict_sentences_embeddings:
+            max_cosine_score = max(max_cosine_score, cosine_similarity([label_embedding], [predict_embedding])[0][0])
+        # Add to the average_score
+        total_cosine_similarity += max_cosine_score
+        total_counts += 1
+
+    # Repeat for the predictions
+    for predict_embedding in predict_sentences_embeddings:
+        # Find the closest embedding in the prediction
+        max_cosine_score = 0
+        for label_embedding in label_sentences_embeddings:
+            max_cosine_score = max(max_cosine_score, cosine_similarity([label_embedding], [predict_embedding])[0][0])
+        # Add to the average_score
+        total_cosine_similarity += max_cosine_score
+        total_counts += 1
+    return total_cosine_similarity/total_counts
+
 def paragraph_embedding_cosine_similarity(label, predict, doc_2_vec_model):
     # Load Model
     label_embedding = doc_2_vec_model.infer_vector(label)
@@ -230,12 +270,15 @@ def location_fmeasure(label, predict):
     predict_locations = []
     for word_index in range(len(label)):
         if label[word_index] in location_words:
-            label_locations.append(label[word_index] + label[word_index+1])
+            label_locations.append(label[word_index] + " " + label[word_index+1])
 
     for word_index in range(len(predict)-1):
         if predict[word_index] in location_words:
             predict_locations.append(predict[word_index] + predict[word_index+1])
-
+    print(label)
+    print(predict)
+    print(label_locations)
+    print(predict_locations)
     tp, fp = 0, 0
     for location in predict_locations:
         if location in label_locations:
@@ -247,6 +290,7 @@ def location_fmeasure(label, predict):
 
     if tp + 0.5 * (fp + fn) == 0:
         return 1
+    print(tp/(tp + 0.5 * (fp + fn)))
     return tp/(tp + 0.5 * (fp + fn))
 
 
@@ -376,7 +420,7 @@ if __name__ == "__main__":
     print(f"Number of tags: {vocab_tag_size}\n Number of words: {vocab_report_size}")
     print('Time taken to inialize Classes {} sec\n'.format(time.time() - start))
 
-    END_TO_END = True
+    END_TO_END = False
     if not END_TO_END:
         # Load Caption Model
         embedding_dim = 128
@@ -419,6 +463,7 @@ if __name__ == "__main__":
     rouge_recall = 0
     rouge_fmeasure = 0
     meteor_score = 0
+    sentence_embedding_score = 0
     paragraph_embedding_cosine_score = 0
     if use_gensim: doc_2_vec_model = Doc2Vec.load(join("enwiki_dbow", "doc2vec.bin"))
 
@@ -442,12 +487,14 @@ if __name__ == "__main__":
             expected_output = expected_output[1:]
 
             ps = list2string(prediction)
-            es = list2string(expected_output) 
+            es = list2string(expected_output)
+            # print(ps)
+            # print(es)
             # print("Pred str", ps[:150])
             # print("Ex str", es)
             
             # Calculate Metrics
-            loc_a = location_fmeasure(expected_output, prediction)
+            loc_a += location_fmeasure(expected_output, prediction)
             kwfm = keyword_fmeasure(expected_output, prediction)
             kw_a += kwfm[0]
             kw_r += kwfm[1]
@@ -455,6 +502,7 @@ if __name__ == "__main__":
             s_a += sfm[0]
             s_r += sfm[1]
 
+            sentence_embedding_score += sentence_embedding_cosine_similarity(es, ps)
             bleu_1_score += sentence_bleu([expected_output], prediction, weights=(1, 0, 0, 0))
             bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
             bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
@@ -474,12 +522,13 @@ if __name__ == "__main__":
 
     results = []
     results.append(("Number of examples:", num_examples))
-    results.append(("Location f measure accuracy", loc_a/num_examples))
+    results.append(("Location f measure", loc_a/num_examples))
     # results.append(("Location f measure recall", loc_r/num_examples))
-    results.append(("Keyword f measure accuracy", kw_a / num_examples))
-    results.append(("Keyword f measure recall", kw_r / num_examples))
-    results.append(("Severity f measure accuracy", s_a / num_examples))
-    results.append(("Severity f measure recall", s_r / num_examples))
+    results.append(("Keyword f measure", kw_a / num_examples))
+    results.append(("Keyword recall", kw_r / num_examples))
+    results.append(("Severity f measure", s_a / num_examples))
+    results.append(("Severity recall", s_r / num_examples))
+    results.append(("Sentence Embedding Cosine Similarity", sentence_embedding_score / num_examples))
     results.append(("ROGUE precision", rouge_precision / num_examples))
     results.append(("ROGUE recall", rouge_recall / num_examples))
     results.append(("ROGUE f measure", rouge_fmeasure / num_examples))
@@ -496,4 +545,3 @@ if __name__ == "__main__":
         for r in results:
             f.write(r[0] + ": " + str(r[1]) + "\n")
     print("DONE, wrote results to %s" % result_filename)
-        
