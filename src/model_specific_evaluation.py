@@ -142,7 +142,6 @@ class_names = ['normal',
              'blood_vessels',
              'hemothorax']
 
-
 location_words = ["left",
                   "right",
                   "up",
@@ -226,9 +225,9 @@ def scores(tp, tn, fp, fn):
         # # print("SM division by 0")
         # print("Label", label)
         # print("Predict", predict[:30])
-        acc = 1
+        fm = 1
     else:
-        acc = tp/(tp+0.5*(fp+fn))
+        fm = tp/(tp+0.5*(fp+fn))
     
     if tn + 0.5 * (fp + fn) == 0:
         # All true negatives align
@@ -237,8 +236,8 @@ def scores(tp, tn, fp, fn):
         # print("Predict", predict[:30])
         recall = 1
     else:
-        recall = tn/(tn+0.5*(fp+fn))
-    return acc, recall
+        recall = tn/(tn+fn)
+    return fm, recall
     
 
 def severity_fmeasure(label, predict):
@@ -266,31 +265,35 @@ def severity_fmeasure(label, predict):
     return scores(tp, tn, fp, fn)
 
 def location_fmeasure(label, predict):
-    label_locations = []
-    predict_locations = []
+    # Change to set for better performance
+    label_locations = set()
+    predict_locations = set()
+
+    # upper lobe => "upperlobe"
     for word_index in range(len(label)):
         if label[word_index] in location_words:
-            label_locations.append(label[word_index] + " " + label[word_index+1])
+            # print("Label has location!", label[word_index], label[word_index+1] )
+            label_locations.add(label[word_index] + " " + label[word_index+1])
 
     for word_index in range(len(predict)-1):
         if predict[word_index] in location_words:
-            predict_locations.append(predict[word_index] + predict[word_index+1])
-    print(label)
-    print(predict)
-    print(label_locations)
-    print(predict_locations)
+            # print("Predicted has location!", predict[word_index], predict[word_index+1] )
+            predict_locations.add(predict[word_index] + " " + predict[word_index+1])
+
     tp, fp = 0, 0
+
     for location in predict_locations:
         if location in label_locations:
             label_locations.remove(location)
             tp += 1
+            # print("Location match!", location)
         else:
             fp += 1
     fn = len(label_locations)
 
     if tp + 0.5 * (fp + fn) == 0:
         return 1
-    print(tp/(tp + 0.5 * (fp + fn)))
+    # if tp > 0: print("Location score", tp/(tp + 0.5 * (fp + fn)))
     return tp/(tp + 0.5 * (fp + fn))
 
 
@@ -420,7 +423,7 @@ if __name__ == "__main__":
     print(f"Number of tags: {vocab_tag_size}\n Number of words: {vocab_report_size}")
     print('Time taken to inialize Classes {} sec\n'.format(time.time() - start))
 
-    END_TO_END = False
+    END_TO_END = False # SELECT MODEL HERE 
     if not END_TO_END:
         # Load Caption Model
         embedding_dim = 128
@@ -457,7 +460,7 @@ if __name__ == "__main__":
 
     print('Time taken to Load Trained Encoder/decoder {} sec\n'.format(time.time() - start))
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rougeL'], use_stemmer=True)
-    loc_a, loc_r, kw_a, kw_r, s_a, s_r = 0, 0, 0, 0, 0, 0
+    loc_a, kw_a, kw_r, s_a, s_r = 0, 0, 0, 0, 0
     bleu_1_score, bleu_2_score, bleu_3_score, bleu_4_score = 0, 0, 0, 0
     rouge_precision = 0
     rouge_recall = 0

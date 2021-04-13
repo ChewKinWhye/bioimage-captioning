@@ -38,7 +38,10 @@ class DataGenerator(keras.utils.Sequence):
                 c += 1
         print("Skipped %s files" % c)
         self.train_IDs = self.list_IDs[:int(len(self.list_IDs)*0.9)]
-        self.test_IDs = self.list_IDs[:int(len(self.list_IDs) * 0.1)]
+        self.test_IDs = self.list_IDs[int(len(self.list_IDs) * 0.9):]
+        for id in self.test_IDs:
+            assert id not in self.train_IDs
+
         self.on_epoch_end()
         self.tag_tokenizer, self.report_tokenizer = self.obtain_tokenizers()
         self.tag_max_length, self.report_max_length = self.obtain_max_lengths()
