@@ -27,7 +27,7 @@ class DataGenerator(keras.utils.Sequence):
         self.base_path = join(dirname(dirname(abspath(__file__))), "data", "indiana-university")
         self.tokenizer_path = join(dirname(dirname(abspath(__file__))), "outs", "tokenizer")
         self.image_path = join(self.base_path, "images", "images_normalized")
-        self.csv_path = join(self.base_path, "indiana_reports.csv")
+        self.csv_path = join(self.base_path, "indiana_reports_test.csv") # Hardcode for testing!
         self.labels, r_f = self.obtain_labels()
         c = 0
         for file in os.listdir(self.image_path):
@@ -37,15 +37,16 @@ class DataGenerator(keras.utils.Sequence):
             else:
                 c += 1
         print("Skipped %s files" % c)
-        self.train_IDs = self.list_IDs[:int(len(self.list_IDs)*0.9)]
-        self.test_IDs = self.list_IDs[int(len(self.list_IDs) * 0.9):]
-        for id in self.test_IDs:
-            assert id not in self.train_IDs
+        # self.train_IDs = self.list_IDs[:int(len(self.list_IDs)*0.9)]
+        # self.test_IDs = self.list_IDs[int(len(self.list_IDs) * 0.9):]
+        self.test_IDs = self.list_IDs
+        # for id in self.test_IDs:
+        #     assert id not in self.train_IDs
 
-        self.on_epoch_end()
+        # self.on_epoch_end()
         self.tag_tokenizer, self.report_tokenizer = self.obtain_tokenizers()
         self.tag_max_length, self.report_max_length = self.obtain_max_lengths()
-        self.on_epoch_end()
+        # self.on_epoch_end()
 
     def unicode_to_ascii(self, s):
         return ''.join(c for c in unicodedata.normalize('NFD', s)

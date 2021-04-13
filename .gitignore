@@ -1,5 +1,5 @@
 env
-data
+data/indiana-university/images
 .idea/
 src/__pycache__/
 src/training_checkpoints
