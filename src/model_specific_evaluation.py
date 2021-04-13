@@ -423,7 +423,7 @@ if __name__ == "__main__":
     print(f"Number of tags: {vocab_tag_size}\n Number of words: {vocab_report_size}")
     print('Time taken to inialize Classes {} sec\n'.format(time.time() - start))
 
-    END_TO_END = False # SELECT MODEL HERE 
+    END_TO_END = True # SELECT MODEL HERE 
     if not END_TO_END:
         # Load Caption Model
         embedding_dim = 128
@@ -470,58 +470,64 @@ if __name__ == "__main__":
     paragraph_embedding_cosine_score = 0
     if use_gensim: doc_2_vec_model = Doc2Vec.load(join("enwiki_dbow", "doc2vec.bin"))
 
-    for batch_idx in range(generator.__testlen__()):
-        tag_features, image_features, y = generator.__gettestitem__(batch_idx)
-        # print("input shapes", tag_features.shape, image_features.shape)
-        for i in range(len(tag_features)):
-            start = time.time()
-            if END_TO_END:
-                prediction = e2e_predict(image_features[i])
-            else:
-                prediction, _, _ = old_predict(tag_features[i], image_features[i])
-            expected_output = []
-            for idx in y[i]:
-                if idx == 0:
-                    continue
+    # 23% are normal.
+    test_batches = 200//BATCH_SIZE
+    print("Test batches:", test_batches)
+    try:
+        for batch_idx in range(test_batches):
+            tag_features, image_features, y = generator.__gettestitem__(batch_idx)
+            # print("input shapes", tag_features.shape, image_features.shape)
+            for i in range(len(tag_features)):
+                start = time.time()
+                if END_TO_END:
+                    prediction = e2e_predict(image_features[i])
                 else:
-                    expected_output.append(generator.report_tokenizer.index_word[idx])
-            
-            # Ignore <start>. But don't ignore <end>
-            expected_output = expected_output[1:]
+                    prediction, _, _ = old_predict(tag_features[i], image_features[i])
+                expected_output = []
+                for idx in y[i]:
+                    if idx == 0:
+                        continue
+                    else:
+                        expected_output.append(generator.report_tokenizer.index_word[idx])
+                
+                # Ignore <start>. But don't ignore <end>
+                expected_output = expected_output[1:]
 
-            ps = list2string(prediction)
-            es = list2string(expected_output)
-            # print(ps)
-            # print(es)
-            # print("Pred str", ps[:150])
-            # print("Ex str", es)
-            
-            # Calculate Metrics
-            loc_a += location_fmeasure(expected_output, prediction)
-            kwfm = keyword_fmeasure(expected_output, prediction)
-            kw_a += kwfm[0]
-            kw_r += kwfm[1]
-            sfm = severity_fmeasure(expected_output, prediction)
-            s_a += sfm[0]
-            s_r += sfm[1]
+                ps = list2string(prediction)
+                es = list2string(expected_output)
+                # print(ps)
+                # print(es)
+                # print("Pred str", ps[:150])
+                # print("Ex str", es)
+                
+                # Calculate Metrics
+                loc_a += location_fmeasure(expected_output, prediction)
+                kwfm = keyword_fmeasure(expected_output, prediction)
+                kw_a += kwfm[0]
+                kw_r += kwfm[1]
+                sfm = severity_fmeasure(expected_output, prediction)
+                s_a += sfm[0]
+                s_r += sfm[1]
 
-            sentence_embedding_score += sentence_embedding_cosine_similarity(es, ps)
-            bleu_1_score += sentence_bleu([expected_output], prediction, weights=(1, 0, 0, 0))
-            bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
-            bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
-            bleu_4_score += sentence_bleu([expected_output], prediction, weights=(0.25, 0.25, 0.25, 0.25))
-            rogue_out = scorer.score(es, ps)['rouge1']
-            rouge_precision += rogue_out.precision
-            rouge_recall += rogue_out.recall
-            rouge_fmeasure += rogue_out.fmeasure
-            meteor_score += nltk_meteor_score(es, ps)
-            if use_gensim: 
-                paragraph_embedding_cosine_score += paragraph_embedding_cosine_similarity(expected_output, prediction,
-                                                                                      doc_2_vec_model)
-        if batch_idx > 9 and batch_idx % 10 == 0:
-            print("Batch", batch_idx, "Examples seen:", batch_idx*BATCH_SIZE)
-            
-    num_examples = generator.__testlen__() * generator.batch_size
+                sentence_embedding_score += sentence_embedding_cosine_similarity(es, ps)
+                bleu_1_score += sentence_bleu([expected_output], prediction, weights=(1, 0, 0, 0))
+                bleu_2_score += sentence_bleu([expected_output], prediction, weights=(0.5, 0.5, 0, 0))
+                bleu_3_score += sentence_bleu([expected_output], prediction, weights=(0.333, 0.333, 0.333, 0))
+                bleu_4_score += sentence_bleu([expected_output], prediction, weights=(0.25, 0.25, 0.25, 0.25))
+                rogue_out = scorer.score(es, ps)['rouge1']
+                rouge_precision += rogue_out.precision
+                rouge_recall += rogue_out.recall
+                rouge_fmeasure += rogue_out.fmeasure
+                meteor_score += nltk_meteor_score(es, ps)
+                if use_gensim: 
+                    paragraph_embedding_cosine_score += paragraph_embedding_cosine_similarity(expected_output, prediction,
+                                                                                        doc_2_vec_model)
+            if batch_idx > 9 and batch_idx % 10 == 0:
+                print("Batch", batch_idx, "Examples seen:", batch_idx*BATCH_SIZE)
+    except:
+        print("Excepted", e)
+     
+    num_examples = test_batches * generator.batch_size
 
     results = []
     results.append(("Number of examples:", num_examples))

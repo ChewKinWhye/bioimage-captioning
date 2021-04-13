@@ -37,6 +37,7 @@ class DataGenerator(keras.utils.Sequence):
             else:
                 c += 1
         print("Skipped %s files" % c)
+        print("Test ID count", len(self.list_IDs))
         # self.train_IDs = self.list_IDs[:int(len(self.list_IDs)*0.9)]
         # self.test_IDs = self.list_IDs[int(len(self.list_IDs) * 0.9):]
         self.test_IDs = self.list_IDs
